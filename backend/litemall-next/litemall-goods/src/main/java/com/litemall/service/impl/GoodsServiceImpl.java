@@ -20,7 +20,6 @@ import com.litemall.service.IGoodsService;
 import com.litemall.service.IGoodsSpecificationService;
 import com.litemall.utils.BeanUtils;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -37,7 +36,6 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
     private final IGoodsProductService goodsProductService;
     private final IGoodsSpecificationService specificationService;
     private final ICommentService commentService;
-    private final StringRedisTemplate stringRedisTemplate;
     private final CacheService cacheService;
     @Override
     public PageVO<GoodsVO> getGoodsList(int pageNum, int pageSize, Long categoryId, String keyword, Long brandId) {
@@ -70,10 +68,9 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         if (goodsId == null) {
             throw new BadRequestException("商品不存在");
         }
-        // ---- BloomFilter 防穿透（默认关闭，启用步骤见 GoodsBloomFilter 类注释）----
-        // if (!bloomFilter.mightContain(String.valueOf(goodsId))) {
-        //     return null; // 或 throw new BadRequestException("商品不存在");
-        // }
+        // L6：原此处有一处"默认关闭的 BloomFilter 防穿透"注释块，其唯一实现 GoodsBloomFilter
+        // 已随 L6 删除（该组件从未启用，也不曾被实例化）。若将来确需防穿透，
+        // 应按 M7 的口径用"空值缓存"处理，而不是引入一个默认关闭的旁路组件。
         String key = "goods:detail:" + goodsId;
         // H6：库存不进长 TTL(1800+300s) 的详情缓存——它变化频繁且必须及时可见。
         // 详情缓存只放"变化少"的字段，库存由 goods:stock:<goodsId> 单独承载，
