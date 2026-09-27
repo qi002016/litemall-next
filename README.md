@@ -36,7 +36,8 @@ Spring Cloud 微服务商城（教学/参考实现）。后端 12 个 Maven 模�
                     │ MySQL litemall 库 │ Redis │ Nacos │ Seata │ RocketMQ │
                     └────────────────────────────────────────────────────┘
 
- 共享库：litemall-common（core/web/cache/mq 聚合）、litemall-common-jwt、litemall-api
+ 共享库：litemall-common（M16 后为纯 POM 聚合层：core/web/mybatis/cache/notify）、
+          litemall-common-jwt、litemall-api
 ```
 
 分层约定：`Controller → IService / ServiceImpl(MyBatis-Plus) → Mapper`；**跨服务只允许走 Feign 契约**，
@@ -141,7 +142,12 @@ cd frontend\admin-web  ; npm ci ; npm run dev    # :5174
 | 模块 | packaging | 职责 |
 |---|---|---|
 | `litemall-next` | pom | 聚合父 POM + 版本收口 |
-| `litemall-common` | jar | 共享能力：`Result`/异常/`PageVO`/工具（core）、MVC 拦截器与全局异常（web）、二级缓存（cache）、SMS 通知（notify） |
+| `litemall-common` | **pom** | M16 后为纯聚合层（无代码）：5 个拆分层 + 服务端中间件（Nacos 注册/配置、Seata、RocketMQ、Feign OkHttp） |
+| `litemall-common-core` | jar | `Result`/`TokenPrincipal`、异常体系、通用工具、`InnerApiProperties`。**不含** Servlet/数据访问/Redis |
+| `litemall-common-web` | jar | 全局异常处理、身份与内部接口拦截器、`MvcConfig`/`JsonConfig`/`SentinelWebConfig`、`WebUtils`、`CookieBuilder` |
+| `litemall-common-mybatis` | jar | `MyBatisConfig`（分页插件）、`PageVO`/`PageQuery`、MySQL 驱动 |
+| `litemall-common-cache` | jar | `CacheService`（Redis + Caffeine 二级缓存）与自动配置 |
+| `litemall-common-notify` | jar | `NotifyService` 与短信发送实现（阿里云/腾讯/Noop） |
 | `litemall-common-jwt` | jar | JWT 单一实现：`JwtTool` / `JwtProperties` / 自动装配 |
 | `litemall-api` | jar | Feign 契约：`GoodsClient` / `OrderClient` / `UserClient` / `MarketingClient` + `domain.dto` |
 | `litemall-gateway` | jar | :8000 WebFlux 网关 |
@@ -165,7 +171,8 @@ docker build -f ..\..\docker\Dockerfile --build-arg MODULE=litemall-gateway -t l
 - 镜像基于 `eclipse-temurin:25-jre`，JAR 路径约定 `backend/litemall-next/<module>/target/<module>.jar`。
   **P2/L8 起 9 个可运行模块全部声明了 `spring-boot-maven-plugin`**（此前只有网关有），
   实测产物为可执行 fat jar（`Main-Class: org.springframework.boot.loader.launch.JarLauncher`、含 `BOOT-INF/`）。
-  `litemall-common`/`litemall-common-jwt`/`litemall-api` 是库模块，**不得**加该插件，也不能作为镜像目标。
+  `litemall-common`（纯 POM）/`litemall-common-{core,web,mybatis,cache,notify}`/`litemall-common-jwt`/`litemall-api`
+  是库模块，**不得**加该插件，也不能作为镜像目标。
 - ⚠️ **本机未安装 Docker，compose 与镜像 tag 未经实跑**，只做了 YAML 语法校验。
   首次使用请以 `docker compose config` 与逐服务启动日志为准。
 - ⚠️ 仓库内**没有任何建库/种子 SQL**（只有 `db-migration-M10-bigint.sql` 这个迁移差量），
@@ -193,41 +200,48 @@ docker build -f ..\..\docker\Dockerfile --build-arg MODULE=litemall-gateway -t l
   2. `StockDeductBatchTest` 连**真实 MySQL** 且依赖既有数据，而仓库没有建库 SQL，
      无法在 runner 上造库，故用 `-Dtest='!StockDeductBatchTest'` 排除，并以 `-Dseata.enabled=false`
      跳开 `192.168.96.129` 的 Seata 注册中心。
-- 本地已实测等价的 CI 命令通过（91 个测试，0 失败；较完整套件少掉的正是被排除的 2 个）：
+- 本地已实测等价的 CI 命令通过（118 个测试，0 失败；较完整套件少掉的正是被排除的 2 个）：
 
 本地等价命令（仓库根）：
 
 ```powershell
-cd backend\litemall-next ; $env:HM_JKS_PASSWORD='hmall123'; mvn -B verify   # 完整套件，93 个测试，需 dev 中间件
+cd backend\litemall-next ; $env:HM_JKS_PASSWORD='hmall123'; mvn -B verify   # 完整套件，120 个测试，需 dev 中间件
 cd frontend/mobile-web   ; npm ci ; npm run lint ; npm run build
 cd frontend/admin-web    ; npm ci ; npm run lint ; npm run build
 ```
 
 ## 9. 测试
 
-下表是实测分布（`mvn -B verify` 全量 = **93 个用例，0 失败**；backend-ci 子集 = 91）。
+下表是实测分布（`mvn -B verify` 全量 = **120 个用例，0 失败**；backend-ci 子集 = 118）。
 
 | 模块 | 测试类（用例数） | 小计 |
 |---|---|---|
-| `litemall-common` | `CacheServiceTest`(4：M7 解码失败抛异常并删损坏 key、空值缓存、H7 SCAN+批量删+广播、M8 单 key 广播)、`InnerApiInterceptorTest`(4) | 8 |
+| `litemall-common` | 纯 POM 聚合层（M16），无测试 | 0 |
+| `litemall-common-core` | 无测试（`Result`/异常/工具） | 0 |
+| `litemall-common-web` | `InnerApiInterceptorTest`(4：内部密钥头校验/401) | 4 |
+| `litemall-common-mybatis` | 无测试 | 0 |
+| `litemall-common-cache` | `CacheServiceTest`(4：M7 解码失败抛异常并删损坏 key、空值缓存、H7 SCAN+批量删+广播、M8 单 key 广播) | 4 |
+| `litemall-common-notify` | 无测试 | 0 |
 | `litemall-common-jwt` | `JwtToolTest`(6：往返、过期拒绝、空令牌、篡改拒绝、缺 role/aud 旧令牌拒绝、异密钥拒绝) | 6 |
 | `litemall-gateway` | `AuthGlobalFilterTest`(6：角色/受众/白名单/头剥离) + 上下文(1) | 7 |
 | `litemall-goods` | `StockDeductBatchTest`(2，**连真实 MySQL**：整批回滚/充足生效) + 上下文(1) | 3 |
 | `litemall-marketing` | `CouponServiceImplTest`(9：MQ 失败回滚限领、预减台账回补、TTL 四例) + 上下文(1) | 10 |
 | `litemall-message` | `MessageServiceImplTest`(7) + 上下文(1) | 8 |
-| `litemall-order` | `OrderAdminStateMachineTest`(9)、`OrderAdminInnerApiTest`(5)、`OrderIdempotentTest`(3：M4 状态机)、`InnerApiSecurityTest`(2：`/inner/**` 401) + 上下文(1) | 20 |
+| `litemall-order` | `OrderAdminStateMachineTest`(9)、`OrderAdminInnerApiTest`(5)、`OrderIdempotentTest`(3：M4 状态机)、`InnerApiSecurityTest`(2：`/inner/**` 401)、`CartServiceImplTest`(16：M14 归属完整性/金额钳制/数量上限) + 上下文(1) | 36 |
 | `litemall-pay` | `PayServiceImplTest`(16：验签失败/幂等/金额不符/RPC 失败释放) + 上下文(1) | 17 |
 | `litemall-storage` | `StorageServiceImplTest`(7：空文件、正常落盘、L7 白名单/无扩展名/目录穿越/超限/Content-Type) + 上下文(1) | 8 |
 | `litemall-user` | 上下文(1) | 1 |
-| `litemall-admin` | `AdminOrderFeignTest`(5，P1 新增) | 5 |
+| `litemall-admin` | `AdminOrderFeignTest`(5，P1)、`AdminDtoValidationTest`(11：M13 各 DTO 约束 + `/admin/auth/login` 的 400 行为 + admin 上下文，该上下文测试以 `seata.enabled=false` 保持与外部中间件无关) | 16 |
 | `litemall-api` | 无测试 | 0 |
+| **合计** | | **120**（CI 子集 118，排除 `StockDeductBatchTest` 的 2 个） |
 
 上下文测试需要 `HM_JKS_PASSWORD`（dev 值 `hmall123`），CI 与本节均以该值注入。
 
-> `litemall-admin` 长期没有 `src/test`（直到 P1 补了 `AdminOrderFeignTest`），其直接后果是：
-> admin 的 `application.yaml` 引用了**无默认值**的 `${hm.db.host}` / `${hm.db.pw}` 却没有
-> `application-dev.yaml`，**admin 在 dev 下无法启动**，而这一断裂躲过了 P0/P1 的全部验收（该模块 0 测试）。
-> P2/M12 已修复。
+> `litemall-admin` 长期没有 `src/test`（P1 只补了 `AdminOrderFeignTest`，仍是纯 Mockito，**不启动上下文**），
+> 其直接后果是：admin 的 `application.yaml` 引用了**无默认值**的 `${hm.db.host}` / `${hm.db.pw}` 却没有
+> `application-dev.yaml`，**admin 在 dev 下无法启动**，而这一断裂躲过了 P0/P1 的全部验收（该模块 0 个上下文测试）。
+> P2/M12 修复了配置；P2/M13 补上了 admin 的**首个上下文测试**（`AdminDtoValidationTest`），
+> 并顺带以 `seata.enabled=false` 使其不依赖外部 Seata 注册中心。
 
 ## 10. 已知限制
 
@@ -241,3 +255,10 @@ cd frontend/admin-web    ; npm ci ; npm run lint ; npm run build
 5. 密钥库 `litemall.jks` 仍在本地磁盘与 git 历史中，**未轮换、未清史**，口令应视为已泄露。
 6. `mobile-web` 的 `GoodsDetail.vue` 有一处 `v-html` 渲染后端 HTML（ESLint `vue/no-v-html` 告警刻意保留），
    是真实 XSS 关注点，正解是接入 sanitize（如 DOMPurify）。
+7. **M16 只瘦身了网关**：其余 11 个模块仍依赖 `litemall-common` 聚合层（依赖树与拆分前**逐条一致**）。
+   按模块进一步裁剪依赖（例如纯计算型服务去掉文档 UI / Redis）属后续优化，本次刻意未做，
+   以把拆分风险限制在"可验证的等价重构"范围内。
+8. `litemall-common/src/main/resources/META-INF/spring-configuration-metadata.json` 的内容仍是
+   hmall 时代的错误元数据（声明 `com.hmall.config.*`、`hm.mq.*` RabbitMQ 属性、`hm.db.pw` 默认 `"123"`）；
+   common 现为 pom 打包，该文件**不会**被打进任何 jar，属惰性残留，**未修改**（超出报告范围）。
+9. `PageQuery`（`common-mybatis`）在全仓**无任何引用**，疑似死代码；因不在报告清单内，**未删除**。
