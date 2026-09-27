@@ -1,0 +1,81 @@
+server:
+  port: 8001
+  # H3：默认只绑回环；容器/对外部署用 HM_SERVER_BIND 覆盖为 0.0.0.0
+  address: ${HM_SERVER_BIND:127.0.0.1}
+spring:
+  application:
+    name: litemall-user
+  profiles:
+    active: ${HM_ACTIVE_PROFILE:dev}
+  config:
+    import:
+      - optional:nacos:${spring.application.name}.yaml
+  datasource:
+    url: jdbc:mysql://${hm.db.host}:3306/litemall?useUnicode=true&characterEncoding=UTF-8&autoReconnect=true&serverTimezone=Asia/Shanghai
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: ${hm.db.pw}
+  data:
+    redis:
+      host: ${hm.redis.host:127.0.0.1}
+      port: ${hm.redis.port:6379}
+      password: ${hm.redis.pw:}
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+  cloud:
+    nacos:
+      server-addr: 192.168.96.129:8848
+    sentinel:
+      enabled: false
+      transport:
+        dashboard: localhost:8090
+
+mybatis-plus:
+  configuration:
+    default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.MybatisEnumTypeHandler
+  global-config:
+    db-config:
+      update-strategy: not_null
+      id-type: auto
+seata:
+  enabled: true
+  application-id: ${spring.application.name}
+  tx-service-group: default_tx_group
+  registry:
+    type: nacos
+    nacos:
+      application: seata-server
+      server-addr: 192.168.96.129:8848
+      group: SEATA_GROUP
+      namespace: ""
+      cluster: default
+      username: ""
+      password: ""
+  service:
+    vgroup-mapping:
+      default_tx_group: default
+sentinel:
+  enabled: false
+
+logging:
+  level:
+    com.hmall: debug
+  pattern:
+    dateformat: HH:mm:ss:SSS
+  file:
+    path: "logs/${spring.application.name}"
+hm:
+  # H4：密钥库口令不再随源码提交，必须由环境变量注入；缺失时启动失败(fail-fast)
+  jwt:
+    location: ${HM_JKS_LOCATION:classpath:litemall.jks}
+    alias: ${HM_JKS_ALIAS:hmall}
+    password: ${HM_JKS_PASSWORD:}
+    tokenTTL: 30m
+  # H3：/inner/** 内部调用共享密钥，由环境变量 HM_INTERNAL_TOKEN 注入
+  internal:
+    token: ${HM_INTERNAL_TOKEN:}
+
+

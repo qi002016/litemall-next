@@ -1,0 +1,49 @@
+### 构建产物 ###
+target/
+build/
+out/
+dist/
+.mvn/wrapper/maven-wrapper.jar
+
+### 密钥（H4：私钥库严禁入库）###
+*.jks
+*.keystore
+*.p12
+*.pem
+secrets.yaml
+.env
+.env.local
+
+### 日志 ###
+logs/
+*.log
+
+### 前端 ###
+node_modules/
+.pnpm-store/
+.cache/
+.vite/
+*.tsbuildinfo
+
+### IDE ###
+.idea/
+*.iws
+*.iml
+*.ipr
+.vscode/
+.nb-gradle/
+/nbproject/private/
+/nbbuild/
+/nbdist/
+
+### 工具缓存 ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+.DS_Store
+Thumbs.db
+HELP.md

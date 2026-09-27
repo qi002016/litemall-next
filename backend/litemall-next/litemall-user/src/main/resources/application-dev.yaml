@@ -1,0 +1,11 @@
+hm:
+  db:
+    host: localhost
+    pw: 123456
+  redis:
+    host: localhost
+    port: 6379
+  wx:
+    mock:
+      # H8：仅 dev 显式开启 mock 微信登录；生产不开启则启动失败
+      enabled: true

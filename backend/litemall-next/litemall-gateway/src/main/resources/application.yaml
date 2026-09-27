@@ -1,0 +1,133 @@
+server:
+  port: 8000
+  # H3：默认只绑回环；容器/对外部署用 HM_SERVER_BIND 覆盖为 0.0.0.0
+  address: ${HM_SERVER_BIND:127.0.0.1}
+spring:
+  application:
+    name: gateway
+  # M12 铺垫：默认 dev（本地/联调），生产必须用 HM_ACTIVE_PROFILE=prod 覆盖
+  profiles:
+    active: ${HM_ACTIVE_PROFILE:dev}
+  config:
+    import:
+      - optional:nacos:${spring.application.name}.yaml
+  cloud:
+    nacos:
+      server-addr: 192.168.96.129:8848
+      discovery:
+        namespace: public
+    sentinel:
+      filter:
+        enabled: false
+    gateway:
+      server:
+        webflux:
+          # NF-2：Nacos 客户端带入 io.grpc(仅 shaded netty)，会让 SCG 启用 gRPC 路由能力，
+          # 而 GrpcSslConfigurer 需要未 shade 的 io.grpc.netty.NettyChannelBuilder → 网关启动即失败。
+          # 本项目不做 gRPC 路由，显式关闭该过滤器。
+          filter:
+            json-to-grpc:
+              enabled: false
+          discovery:
+            locator:
+              enabled: false
+              lower-case-service-id: true
+          routes:
+            - id: user
+              uri: lb://litemall-user
+              predicates:
+                - Path=/app/auth/**,/app/user/**,/app/address/**
+            - id: goods
+              uri: lb://litemall-goods
+              predicates:
+                - Path=/app/goods/**,/app/search/**
+            - id: order
+              uri: lb://litemall-order
+              predicates:
+                - Path=/app/cart/**,/app/order/**,/app/aftersale/**,/app/collect/**,/app/footprint/**
+            - id: marketing
+              uri: lb://litemall-marketing
+              predicates:
+                - Path=/app/market/**
+            - id: pay
+              uri: lb://litemall-pay
+              predicates:
+                - Path=/app/pay/**
+            - id: message
+              uri: lb://litemall-message
+              predicates:
+                - Path=/app/msg/**,/app/feedback/**
+            - id: storage
+              uri: lb://litemall-storage
+              predicates:
+                - Path=/app/storage/**
+            - id: storage-file
+              uri: lb://litemall-storage
+              predicates:
+                - Path=/storage/**
+            - id: admin
+              uri: lb://litemall-admin
+              predicates:
+                - Path=/admin/**
+seata:
+  # M16/NF-1：网关不参与分布式事务，已在 pom 排除 Seata（见 gateway/pom.xml），
+  # 此处再显式关闭，避免后续有人重新引入依赖时复活该问题。
+  enabled: false
+  application-id: ${spring.application.name}
+  tx-service-group: default_tx_group
+  registry:
+    type: nacos
+    nacos:
+      application: seata-server
+      server-addr: 192.168.96.129:8848
+      group: SEATA_GROUP
+      namespace: ""
+      cluster: default
+      username: ""
+      password: ""
+  service:
+    vgroup-mapping:
+      default_tx_group: default
+sentinel:
+  enabled: false
+hm:
+  # H4：密钥库口令不再随源码提交，必须由环境变量注入；缺失时启动失败(fail-fast)
+  jwt:
+    location: ${HM_JKS_LOCATION:classpath:litemall.jks}
+    alias: ${HM_JKS_ALIAS:hmall}
+    password: ${HM_JKS_PASSWORD:}
+    tokenTTL: 30m
+  # H3：/inner/** 内部调用共享密钥；dev 允许为空(不校验并告警)，非 dev 为空则启动失败
+  internal:
+    token: ${HM_INTERNAL_TOKEN:}
+  auth:
+    # H1：路径前缀 → 要求的令牌角色与受众
+    roleRules:
+      - pattern: /admin/**
+        role: admin
+        aud: litemall-admin
+      - pattern: /app/**
+        role: user
+        aud: litemall-app
+    excludePaths:
+      - /app/auth/login
+      - /app/auth/register
+      - /app/auth/wx-login
+      - /app/auth/captcha
+      # 商品浏览（白名单）
+      - /app/goods/list
+      - /app/goods/detail
+      - /app/goods/category
+      - /app/goods/brand/list
+      - /app/goods/comment/list
+      # 营销浏览（白名单）
+      - /app/market/ad/list
+      - /app/market/coupon/list
+      - /app/market/groupon/list
+      - /app/market/topic/list
+      - /app/market/notice/list
+      # H2：微信支付回调免登录(微信服务器无令牌)，但必须在 pay 服务内通过验签；
+      # 只登记精确路径，禁止通配，避免新增回调端点自动获得免登录语义
+      - /app/pay/notify/wechat
+      # 管理端登录（白名单）
+      - /admin/auth/login

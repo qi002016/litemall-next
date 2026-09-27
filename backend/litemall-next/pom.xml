@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<!-- 引入 Spring Boot BOM 作为父:统一管理 Boot 4.0.8 全套依赖版本 -->
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>4.0.8</version>
+		<relativePath/>
+	</parent>
+
+	<groupId>com.litemall</groupId>
+	<artifactId>litemall-next</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<!-- 聚合工程必须是 pom 打包,自身不产出 jar -->
+	<packaging>pom</packaging>
+	<name>litemall-next</name>
+	<description>litemall-next 微服务聚合父工程</description>
+
+	<!-- 所有子模块(新增模块后务必登记到这里) -->
+	<modules>
+		<module>litemall-common</module>
+		<module>litemall-api</module>
+		<module>litemall-gateway</module>
+		<module>litemall-goods</module>
+		<module>litemall-marketing</module>
+		<module>litemall-message</module>
+		<module>litemall-order</module>
+		<module>litemall-pay</module>
+		<module>litemall-storage</module>
+		<module>litemall-user</module>
+		<module>litemall-admin</module>
+	</modules>
+
+	<properties>
+		<java.version>25</java.version>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<org.projectlombok.version>1.18.46</org.projectlombok.version>
+		<spring-cloud.version>2025.1.2</spring-cloud.version>
+		<spring-cloud-alibaba.version>2025.1.0.0</spring-cloud-alibaba.version>
+		<mybatis-plus.version>3.5.17</mybatis-plus.version>
+		<hutool.version>5.8.47</hutool.version>
+	</properties>
+
+	<!-- 版本统一收口在这里,子模块引用时不写版本号 -->
+	<dependencyManagement>
+		<dependencies>
+			<!-- Spring Cloud 2025.1(Oakwood,适配 Boot 4.0/4.1) -->
+			<dependency>
+				<groupId>org.springframework.cloud</groupId>
+				<artifactId>spring-cloud-dependencies</artifactId>
+				<version>${spring-cloud.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+			<!-- Spring Cloud Alibaba 2025.1.0.0(Nacos/Sentinel/RocketMQ 客户端版本对齐) -->
+			<dependency>
+				<groupId>com.alibaba.cloud</groupId>
+				<artifactId>spring-cloud-alibaba-dependencies</artifactId>
+				<version>${spring-cloud-alibaba.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+			<!-- MyBatis-Plus(数据库驱动 mysql-connector-j 由 Boot BOM 管理,无需显式版本) -->
+			<dependency>
+				<groupId>com.baomidou</groupId>
+				<artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+				<version>${mybatis-plus.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>com.baomidou</groupId>
+				<artifactId>mybatis-plus-jsqlparser</artifactId>
+				<version>${mybatis-plus.version}</version>
+			</dependency>
+			<!-- hutool 工具库 -->
+			<dependency>
+				<groupId>cn.hutool</groupId>
+				<artifactId>hutool-all</artifactId>
+				<version>${hutool.version}</version>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
+
+	<!-- 所有子模块默认继承:lombok + 单元测试 -->
+	<dependencies>
+		<dependency>
+			<groupId>org.projectlombok</groupId>
+			<artifactId>lombok</artifactId>
+			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<!-- 显式声明 Lombok 注解处理器(Spring Boot 4 parent 不再自动配置) -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<configuration>
+					<annotationProcessorPaths>
+						<path>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+							<version>${org.projectlombok.version}</version>
+						</path>
+					</annotationProcessorPaths>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+
+</project>
