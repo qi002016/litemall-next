@@ -25,8 +25,8 @@ service.interceptors.request.use(
 service.interceptors.response.use(
   (response) => {
     const res = response.data
-    // code 0（文档口径）或 200（当前 Result.ok 实际值）视为成功
-    if (res.code === 0 || res.code === 200) {
+    // 契约统一：成功码只有 200（Result.ok()），后端不存在返回 0 的代码路径
+    if (res.code === 200) {
       return res.data
     }
     if (res.code === 401) {
