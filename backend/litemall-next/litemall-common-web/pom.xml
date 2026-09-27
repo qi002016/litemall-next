@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.litemall</groupId>
+        <artifactId>litemall-next</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>litemall-common-web</artifactId>
+    <name>litemall-common-web</name>
+    <description>
+        M16：common 拆分层之一——Servlet Web 层。内容：统一异常处理
+        (CommonExceptionAdvice)、身份/内部接口拦截器、MvcConfig/JsonConfig/SentinelWebConfig、
+        WebUtils、CookieBuilder。只有 Servlet MVC 应用（8 个业务服务 + admin）才需要本模块；
+        WebFlux 网关不依赖它，因此无需再排除 spring-boot-starter-web / validation / knife4j。
+    </description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.litemall</groupId>
+            <artifactId>litemall-common-core</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+        <!-- Servlet Web MVC -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- @Valid / MethodArgumentNotValidException 处理 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <!-- JsonConfig：Jackson 3(JsonMapperBuilderCustomizer) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-jackson</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <!-- PageVO 上的 @Schema -->
+        <dependency>
+            <groupId>com.baizhukui</groupId>
+            <artifactId>knife4j-openapi3-boot4-spring-boot-starter</artifactId>
+            <version>5.7.5</version>
+        </dependency>
+        <!-- SentinelWebConfig：Sentinel WebMvc 前缀拦截器 -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-sentinel</artifactId>
+        </dependency>
+        <!-- MvcConfig / 拦截器使用 StrUtil -->
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+        </dependency>
+    </dependencies>
+</project>

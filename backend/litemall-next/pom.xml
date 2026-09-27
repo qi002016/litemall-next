@@ -22,6 +22,11 @@
 	<!-- 所有子模块(新增模块后务必登记到这里) -->
 	<modules>
 		<module>litemall-common</module>
+		<module>litemall-common-core</module>
+		<module>litemall-common-web</module>
+		<module>litemall-common-mybatis</module>
+		<module>litemall-common-cache</module>
+		<module>litemall-common-notify</module>
 		<module>litemall-common-jwt</module>
 		<module>litemall-api</module>
 		<module>litemall-gateway</module>

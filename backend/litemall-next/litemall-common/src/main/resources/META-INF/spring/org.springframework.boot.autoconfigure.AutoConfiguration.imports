@@ -1,5 +1,0 @@
-com.litemall.config.MyBatisConfig
-com.litemall.config.MvcConfig
-com.litemall.config.JsonConfig
-com.litemall.cache.CacheAutoConfiguration
-com.litemall.notify.config.NotifyAutoConfiguration

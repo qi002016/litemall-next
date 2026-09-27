@@ -17,13 +17,13 @@
 
     <dependencies>
         <!--
-            TokenPrincipal / UnauthorizedException 来自 litemall-common。
-            此处标记 optional：消费方(gateway/user/admin)都已自行依赖 litemall-common，
-            不再传递依赖，避免网关经本模块重新引入其在 common 上排除掉的 Servlet/数据访问依赖。
+            TokenPrincipal / UnauthorizedException 来自 litemall-common-core（M16 拆分后的核心层）。
+            此处标记 optional：消费方(gateway/user/admin)都已自行依赖所需模块，
+            不再传递依赖，避免网关经本模块重新引入 Servlet/数据访问依赖。
         -->
         <dependency>
             <groupId>com.litemall</groupId>
-            <artifactId>litemall-common</artifactId>
+            <artifactId>litemall-common-core</artifactId>
             <version>0.0.1-SNAPSHOT</version>
             <optional>true</optional>
         </dependency>

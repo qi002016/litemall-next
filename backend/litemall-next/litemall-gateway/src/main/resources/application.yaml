@@ -71,7 +71,9 @@ spring:
               predicates:
                 - Path=/admin/**
 seata:
-  # M16/NF-1：网关不参与分布式事务，已在 pom 排除 Seata（见 gateway/pom.xml），
+  # M16/NF-1：网关不参与分布式事务。M16 拆分后网关只依赖 litemall-common-core +
+  # litemall-common-jwt，Seata 位于 litemall-common 聚合层，网关根本拿不到该依赖
+  #（此前靠 gateway/pom.xml 的 exclusion 实现，现已无需 exclusion）；
   # 此处再显式关闭，避免后续有人重新引入依赖时复活该问题。
   enabled: false
   application-id: ${spring.application.name}

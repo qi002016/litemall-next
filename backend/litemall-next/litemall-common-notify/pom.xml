@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.litemall</groupId>
+        <artifactId>litemall-next</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>litemall-common-notify</artifactId>
+    <name>litemall-common-notify</name>
+    <description>
+        M16：common 拆分层之一——通知层。内容：NotifyService/SmsSender 及
+        Aliyun/Tencent/Noop 三个实现 + NotifyAutoConfiguration。
+        只依赖 spring-boot-starter（不使用 web、数据访问、Redis）。
+    </description>
+
+    <dependencies>
+        <!-- @AutoConfiguration / @ConfigurationProperties / @Async / @Bean -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+    </dependencies>
+</project>

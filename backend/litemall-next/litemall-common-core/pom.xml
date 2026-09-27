@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.litemall</groupId>
+        <artifactId>litemall-next</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>litemall-common-core</artifactId>
+    <name>litemall-common-core</name>
+    <description>
+        M16：common 拆分层之一——核心层。不含 Servlet Web、数据访问、Redis、API 文档 UI，
+        因此 WebFlux 网关可以只依赖本模块（+ litemall-common-jwt）而不再需要 7 项 exclusion。
+        内容：com.litemall.domain.{Result,TokenPrincipal}、com.litemall.exception.*、
+        com.litemall.utils.{BeanUtils,CollUtils,Convert,CookieBuilder,UserContext}、
+        com.litemall.config.InnerApiProperties。
+    </description>
+
+    <dependencies>
+        <!-- @Component / @ConfigurationProperties（不含 web、不含数据访问） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+        <!-- 工具库（CollUtils/BeanUtils/Convert/CookieBuilder 依赖） -->
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+        </dependency>
+    </dependencies>
+</project>
