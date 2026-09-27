@@ -25,4 +25,15 @@
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
     </dependencies>
+    <build>
+        <!-- L8：业务模块同样需要可执行 jar，否则镜像里 java -jar 起不来（此前只有网关声明了本插件）。
+             库模块 litemall-common / litemall-common-jwt / litemall-api 不得声明，保持普通 jar。 -->
+        <finalName>${project.artifactId}</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
 </project>

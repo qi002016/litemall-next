@@ -1,0 +1,294 @@
+# L8：本地/联调一键起栈（中间件 + 9 个后端服务）
+#
+# 重要说明（勿删）：
+#   1. 本文件在编写环境中**无法执行验证**——该机器未安装 Docker，故镜像 tag 与
+#      healthcheck 命令均未经实跑。首次使用请以 `docker compose config` 与逐服务启动日志为准。
+#   2. 仓库内**没有任何建库/种子 SQL**，因此 MySQL 无法自动初始化。
+#      请把你的 schema/数据导出放到 ./mysql/init/*.sql，容器首次启动时会自动执行。
+#   3. *.jks 被 .gitignore 忽略，请自行把 litemall.jks 放到 ./secrets/litemall.jks。
+#   4. 服务默认用 dev profile：prod profile 会强制从 Nacos 导入
+#      `${spring.application.name}.yaml`（M12 引入，非 optional），Nacos 里没有该配置时会启动失败。
+#
+# 用法：
+#   cd docker && cp .env.example .env && 编辑 .env
+#   docker compose up -d mysql redis nacos seata rocketmq-namesrv rocketmq-broker
+#   docker compose up -d --build gateway user goods marketing order pay message storage admin
+
+name: litemall-next
+
+x-app-build: &app-build
+  context: ../backend/litemall-next
+  dockerfile: ../../docker/Dockerfile
+
+x-app-env: &app-env
+  HM_ACTIVE_PROFILE: ${HM_ACTIVE_PROFILE:-dev}
+  HM_SERVER_BIND: 0.0.0.0
+  # Seata 的 registry 走 Nacos（见各模块 seata.registry.nacos.server-addr），故这里填 Nacos 地址
+  HM_NACOS_ADDR: nacos:8848
+  HM_SEATA_ADDR: nacos:8848
+  HM_ROCKETMQ_ADDR: rocketmq-namesrv:9876
+  # HM_DB_HOST/HM_DB_USER/HM_DB_PW 经 Spring 宽松绑定映射到 hm.db.host/user/pw
+  HM_DB_HOST: mysql
+  HM_DB_PORT: "3306"
+  HM_DB_NAME: ${HM_DB_NAME:-litemall}
+  HM_DB_USER: ${HM_DB_USER:-root}
+  HM_DB_PW: ${HM_DB_PW:?请在 .env 中设置 HM_DB_PW}
+  HM_INTERNAL_TOKEN: ${HM_INTERNAL_TOKEN:?请在 .env 中设置 HM_INTERNAL_TOKEN}
+  HM_JKS_LOCATION: file:/run/config/litemall.jks
+  HM_JKS_PASSWORD: ${HM_JKS_PASSWORD:?请在 .env 中设置 HM_JKS_PASSWORD}
+
+x-app-base: &app-base
+  restart: unless-stopped
+  environment: *app-env
+  volumes:
+    - ./secrets/litemall.jks:/run/config/litemall.jks:ro
+
+services:
+
+  # ---------------- 中间件 ----------------
+  mysql:
+    image: mysql:8.4
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${HM_DB_PW:?}
+      MYSQL_DATABASE: ${HM_DB_NAME:-litemall}
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  nacos:
+    image: nacos/nacos-server:v2.4.3
+    environment:
+      MODE: standalone
+      NACOS_AUTH_ENABLE: "false"
+      JVM_XMS: 512m
+      JVM_XMX: 512m
+    ports:
+      - "8848:8848"
+      - "9848:9848"   # gRPC，Spring Cloud Alibaba 客户端必需
+    volumes:
+      - nacos-data:/home/nacos/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8848/nacos/v1/console/health/readiness || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  seata:
+    image: apache/seata-server:2.2.0
+    depends_on:
+      nacos:
+        condition: service_healthy
+    environment:
+      SEATA_PORT: "8091"
+      STORE_MODE: file
+      # 注册到 Nacos，应用侧 seata.registry.nacos.application=seata-server / group=SEATA_GROUP
+      SEATA_REGISTRY_TYPE: nacos
+      SEATA_REGISTRY_NACOS_SERVER_ADDR: nacos:8848
+      SEATA_REGISTRY_NACOS_APPLICATION: seata-server
+      SEATA_REGISTRY_NACOS_GROUP: SEATA_GROUP
+    ports:
+      - "8091:8091"
+      - "7091:7091"
+
+  rocketmq-namesrv:
+    image: apache/rocketmq:5.3.1
+    command: sh mqnamesrv
+    ports:
+      - "9876:9876"
+    volumes:
+      - rocketmq-namesrv-logs:/home/rocketmq/logs
+
+  rocketmq-broker:
+    image: apache/rocketmq:5.3.1
+    depends_on:
+      - rocketmq-namesrv
+    command: sh mqbroker -n rocketmq-namesrv:9876
+    environment:
+      NAMESRV_ADDR: rocketmq-namesrv:9876
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+    volumes:
+      - rocketmq-broker-store:/home/rocketmq/store
+      - rocketmq-broker-logs:/home/rocketmq/logs
+
+  # ---------------- 后端服务（网关 + 8 个业务模块）----------------
+  gateway:
+    <<: *app-base
+    build:
+      <<: *app-build
+      args:
+        MODULE: litemall-gateway
+    depends_on:
+      nacos:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  user:
+    <<: *app-base
+    build:
+      <<: *app-build
+      args:
+        MODULE: litemall-user
+    depends_on:
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+
+  goods:
+    <<: *app-base
+    build:
+      <<: *app-build
+      args:
+        MODULE: litemall-goods
+    depends_on:
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8002:8002"
+
+  marketing:
+    <<: *app-base
+    build:
+      <<: *app-build
+      args:
+        MODULE: litemall-marketing
+    depends_on:
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8003:8003"
+
+  order:
+    <<: *app-base
+    build:
+      <<: *app-build
+      args:
+        MODULE: litemall-order
+    depends_on:
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8004:8004"
+
+  pay:
+    <<: *app-base
+    build:
+      <<: *app-build
+      args:
+        MODULE: litemall-pay
+    depends_on:
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    ports:
+      - "8005:8005"
+
+  message:
+    <<: *app-base
+    build:
+      <<: *app-build
+      args:
+        MODULE: litemall-message
+    depends_on:
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      rocketmq-namesrv:
+        condition: service_started
+    ports:
+      - "8006:8006"
+
+  storage:
+    <<: *app-base
+    build:
+      <<: *app-build
+      args:
+        MODULE: litemall-storage
+    depends_on:
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    ports:
+      - "8007:8007"
+    environment:
+      <<: *app-env
+      # L7：上传目录与上限；容器内挂到卷上，避免随容器销毁而丢文件
+      HM_STORAGE_DIR: /data/storage
+      HM_STORAGE_MAX_SIZE: ${HM_STORAGE_MAX_SIZE:-10485760}
+      HM_STORAGE_ALLOWED_EXT: ${HM_STORAGE_ALLOWED_EXT:-jpg,jpeg,png,gif,webp,bmp,pdf}
+    volumes:
+      - ./secrets/litemall.jks:/run/config/litemall.jks:ro
+      - storage-data:/data/storage
+
+  admin:
+    <<: *app-base
+    build:
+      <<: *app-build
+      args:
+        MODULE: litemall-admin
+    depends_on:
+      nacos:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8008:8008"
+
+volumes:
+  mysql-data:
+  redis-data:
+  nacos-data:
+  rocketmq-namesrv-logs:
+  rocketmq-broker-store:
+  rocketmq-broker-logs:
+  storage-data:

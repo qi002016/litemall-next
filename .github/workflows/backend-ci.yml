@@ -1,0 +1,80 @@
+name: backend-ci
+
+# L8：后端 CI。
+#
+# 覆盖范围（如实标注）：本 workflow 跑的是"基础设施无关"的子集——
+#   编译 + 单元测试 + Spring 上下文测试。
+# 不能覆盖的：需要真实中间件的用例，已显式排除：
+#   - StockDeductBatchTest：连真实 MySQL 并依赖既有数据；仓库内没有任何建库/种子 SQL，
+#     干净 runner 上无法造库。
+# 因此合并前请在具备 dev 中间件的机器上跑一次完整 `mvn -B verify`
+# （见 README「验证与测试」一节，命令：cd backend\litemall-next; $env:HM_JKS_PASSWORD='hmall123'; mvn -B verify）。
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'backend/litemall-next/**'
+      - '.github/workflows/backend-ci.yml'
+  pull_request:
+    paths:
+      - 'backend/litemall-next/**'
+      - '.github/workflows/backend-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: mvn verify（基础设施无关子集）
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      # .gitignore 忽略了 *.jks（H4），干净 runner 上没有密钥库，
+      # 上下文测试会以
+      #   "Cannot load keys from store: class path resource [litemall.jks] does not exist"
+      # 失败。故此处现场生成一次性自签密钥库：别名 hmall、口令 hmall123，与测试期望一致，
+      # 仅用于跑测试，不是生产密钥（生产应由 Secret 注入真实密钥库）。
+      - name: 生成一次性测试密钥库
+        run: |
+          set -euo pipefail
+          for m in litemall-gateway litemall-admin litemall-user; do
+            keytool -genkeypair -noprompt \
+              -alias hmall -keyalg RSA -keysize 2048 -validity 1 \
+              -dname "CN=litemall-ci, OU=ci, O=litemall, L=ci, ST=ci, C=CN" \
+              -keystore "backend/litemall-next/$m/src/main/resources/litemall.jks" \
+              -storetype PKCS12 -storepass hmall123 -keypass hmall123
+          done
+
+      - name: mvn -B verify
+        env:
+          HM_JKS_PASSWORD: hmall123
+          HM_ACTIVE_PROFILE: dev
+        run: |
+          mvn -B verify \
+            -Dseata.enabled=false \
+            -Dspring.cloud.nacos.discovery.enabled=false \
+            -Dtest='!StockDeductBatchTest' \
+            -Dsurefire.failIfNoSpecifiedTests=false
+
+      - name: 上传 surefire 报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: backend/litemall-next/**/target/surefire-reports/
+          if-no-files-found: ignore

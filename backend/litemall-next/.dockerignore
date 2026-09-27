@@ -1,0 +1,25 @@
+# L8：缩小 docker build 上下文
+# 本文件必须位于 **构建上下文根**（= backend/litemall-next），Docker 只读取上下文根下的 .dockerignore。
+# 因此放在这里而不是仓库根的 docker/ 下。
+**/target/classes/
+**/target/generated-sources/
+**/target/generated-test-sources/
+**/target/test-classes/
+**/target/*.original
+**/target/*-sources.jar
+**/target/*-javadoc.jar
+.idea/
+**/.idea/
+logs/
+**/logs/
+*.iml
+.git/
+**/.git/
+.mvn/
+**/.mvn/
+
+# 密钥严禁进入镜像层（H4）：jks 由运行时挂载或环境变量注入
+**/*.jks
+**/*.keystore
+**/*.p12
+**/*.pem
