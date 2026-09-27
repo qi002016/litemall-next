@@ -67,7 +67,11 @@ hm:
   internal:
     token: ${HM_INTERNAL_TOKEN:}
   storage:
-    dir: ./storage
+    # L7：上传目录、单文件大小上限、扩展名白名单全部可配置
+    dir: ${HM_STORAGE_DIR:./storage}
+    # 默认 10MB；实现内另以 Integer.MAX_VALUE 兜底（DB 列为 int），超限直接拒绝
+    max-size: ${HM_STORAGE_MAX_SIZE:10485760}
+    allowed-extensions: ${HM_STORAGE_ALLOWED_EXT:jpg,jpeg,png,gif,webp,bmp,pdf}
 
 logging:
   level:
