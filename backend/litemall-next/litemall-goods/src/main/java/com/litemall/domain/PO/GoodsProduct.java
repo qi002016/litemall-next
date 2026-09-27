@@ -29,10 +29,10 @@ public class GoodsProduct implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @TableId(value = "id", type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     @Schema(description = "商品表的商品ID")
-    private Integer goodsId;
+    private Long goodsId;
 
     @Schema(description = "商品规格值列表，采用JSON数组格式")
     private String specifications;

@@ -213,7 +213,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
                 .stream()
                 .map(u -> {
                     UserInfoDTO dto = new UserInfoDTO();
-                    dto.setId(u.getId().longValue());
+                    dto.setId(u.getId());
                     dto.setNickname(u.getNickname());
                     dto.setAvatar(u.getAvatar());
                     return dto;
@@ -222,7 +222,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     }
 
     private UserLoginVO buildLoginVO(User user) {
-        Long userId = user.getId().longValue();
+        Long userId = user.getId();
         String token = jwtTool.createToken(userId, TokenPrincipal.ROLE_USER, TokenPrincipal.AUD_APP,
                 jwtProperties.getTokenTTL());
         UserLoginVO vo = new UserLoginVO();

@@ -43,10 +43,21 @@ public class UserController {
     @PostMapping("/status")
     public Result<Void> status(@RequestBody Map<String, Object> body) {
         UserStatusDTO dto = new UserStatusDTO();
-        dto.setId(asInteger(body.get("id")));
+        dto.setId(asLong(body.get("id")));
         dto.setStatus(asInteger(body.get("status")));
         userClient.adminUpdateUserStatus(dto);
         return Result.ok();
+    }
+
+    /** 请求体中的用户ID：JSON 整数字面量既可能是 Integer 也可能是 Long，统一按 64 位解析 */
+    private Long asLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        return Long.valueOf(value.toString());
     }
 
     private Integer asInteger(Object value) {

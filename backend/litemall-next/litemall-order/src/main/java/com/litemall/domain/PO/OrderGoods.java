@@ -30,13 +30,13 @@ public class OrderGoods implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @TableId(value = "id", type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     @Schema(description = "订单ID")
-    private Integer orderId;
+    private Long orderId;
 
     @Schema(description = "商品ID")
-    private Integer goodsId;
+    private Long goodsId;
 
     @Schema(description = "商品名称")
     private String goodsName;
@@ -45,7 +45,7 @@ public class OrderGoods implements Serializable {
     private String goodsSn;
 
     @Schema(description = "商品货品ID")
-    private Integer productId;
+    private Long productId;
 
     @Schema(description = "商品货品的购买数量")
     private Integer number;

@@ -30,7 +30,7 @@ public class Category implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @TableId(value = "id", type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     @Schema(description = "分类名称")
     private String name;
@@ -43,7 +43,7 @@ public class Category implements Serializable {
     private String desc;
 
     @Schema(description = "父类目ID, 顶级为0")
-    private Integer pid;
+    private Long pid;
 
     @Schema(description = "分类图标")
     private String iconUrl;

@@ -126,10 +126,10 @@ class OrderIdempotentTest {
 
     private Cart validCart() {
         return new Cart()
-                .setId(1)
-                .setUserId(1)
-                .setProductId(10)
-                .setGoodsId(100)
+                .setId(1L)
+                .setUserId(1L)
+                .setProductId(10L)
+                .setGoodsId(100L)
                 .setNumber(1)
                 .setDeleted(false);
     }

@@ -16,7 +16,7 @@ import lombok.Data;
 public class UserAdminDTO {
 
     @Schema(description = "用户ID")
-    private Integer id;
+    private Long id;
 
     @Schema(description = "用户名")
     private String username;

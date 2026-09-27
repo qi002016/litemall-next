@@ -51,7 +51,7 @@ public interface GoodsClient {
      * @param param key=productId 货品ID, value=number 扣减数量
      */
     @PostMapping("/inner/goods/product/deduct")
-    void deductStock(@RequestBody Map<String, Integer> param);
+    void deductStock(@RequestBody Map<String, Object> param);
 
     /**
      * 回补货品库存（取消订单场景）
@@ -59,7 +59,7 @@ public interface GoodsClient {
      * @param param key=productId 货品ID, value=number 回补数量
      */
     @PostMapping("/inner/goods/product/release")
-    void releaseStock(@RequestBody Map<String, Integer> param);
+    void releaseStock(@RequestBody Map<String, Object> param);
 
     /**
      * M2：批量扣减货品库存（下单场景，一次 RPC 完成多件商品扣减）。
@@ -134,5 +134,5 @@ public interface GoodsClient {
      * @param id 商品ID
      */
     @DeleteMapping("/inner/goods/admin/delete")
-    void adminDeleteGoods(@RequestParam("id") Integer id);
+    void adminDeleteGoods(@RequestParam("id") Long id);
 }

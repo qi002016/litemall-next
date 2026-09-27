@@ -52,13 +52,13 @@ public class OrderInnerController {
     @Operation(summary = "查询订单支付信息")
     @GetMapping("/pay/info")
     public OrderPayInfoDTO getPayInfo(@RequestParam("orderId") Long orderId) {
-        Order order = orderMapper.selectById(orderId.intValue());
+        Order order = orderMapper.selectById(orderId);
         if (order == null || Boolean.TRUE.equals(order.getDeleted())) {
             return null;
         }
         OrderPayInfoDTO dto = new OrderPayInfoDTO();
-        dto.setOrderId(order.getId().longValue());
-        dto.setUserId(order.getUserId().longValue());
+        dto.setOrderId(order.getId());
+        dto.setUserId(order.getUserId());
         dto.setOrderStatus(order.getOrderStatus());
         dto.setActualPrice(order.getActualPrice());
         dto.setPayTime(order.getPayTime());
@@ -69,7 +69,7 @@ public class OrderInnerController {
     @Operation(summary = "支付成功：订单 101 → 102 并写支付时间/单号")
     @PostMapping("/pay/success")
     public void markPaid(@RequestBody PaySuccessDTO dto) {
-        Order order = orderMapper.selectById(dto.getOrderId().intValue());
+        Order order = orderMapper.selectById(dto.getOrderId());
         if (order == null || Boolean.TRUE.equals(order.getDeleted())) {
             throw new BadRequestException("订单不存在");
         }
@@ -92,7 +92,7 @@ public class OrderInnerController {
     @Operation(summary = "退款申请：订单置为售后状态并记录退款信息")
     @PostMapping("/pay/refund")
     public void markRefunded(@RequestParam("orderId") Long orderId, @RequestParam("amount") BigDecimal amount) {
-        Order order = orderMapper.selectById(orderId.intValue());
+        Order order = orderMapper.selectById(orderId);
         if (order == null || Boolean.TRUE.equals(order.getDeleted())) {
             throw new BadRequestException("订单不存在");
         }

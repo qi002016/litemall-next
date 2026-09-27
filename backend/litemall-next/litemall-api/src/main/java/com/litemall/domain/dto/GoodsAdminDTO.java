@@ -22,7 +22,7 @@ import java.math.BigDecimal;
 public class GoodsAdminDTO {
 
     @Schema(description = "商品ID")
-    private Integer id;
+    private Long id;
 
     @Schema(description = "商品名称")
     private String name;

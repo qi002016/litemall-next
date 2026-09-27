@@ -30,13 +30,13 @@ public class Refund implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @TableId(value = "id", type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     @Schema(description = "订单ID")
-    private Integer orderId;
+    private Long orderId;
 
     @Schema(description = "用户ID")
-    private Integer userId;
+    private Long userId;
 
     @Schema(description = "退款金额")
     private BigDecimal amount;

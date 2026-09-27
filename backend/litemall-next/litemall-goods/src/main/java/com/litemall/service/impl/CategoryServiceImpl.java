@@ -36,15 +36,15 @@ public class CategoryServiceImpl extends ServiceImpl<CategoryMapper, Category> i
                     .orderByAsc(Category::getPid)
                     .orderByAsc(Category::getSortOrder)
                     .list();
-            Map<Integer, List<Category>> childrenMap = categories.stream()
+            Map<Long, List<Category>> childrenMap = categories.stream()
                     .collect(Collectors.groupingBy(Category::getPid));
-            return childrenMap.getOrDefault(0, List.of()).stream()
+            return childrenMap.getOrDefault(0L, List.of()).stream()
                     .map(root -> buildTree(root, childrenMap))
                     .collect(Collectors.toList());
         });
     }
 
-    private CategoryVO buildTree(Category category, Map<Integer, List<Category>> childrenMap) {
+    private CategoryVO buildTree(Category category, Map<Long, List<Category>> childrenMap) {
         CategoryVO vo = BeanUtils.copyBean(category, CategoryVO.class);
         List<Category> children = childrenMap.get(category.getId());
         if (children != null && !children.isEmpty()) {

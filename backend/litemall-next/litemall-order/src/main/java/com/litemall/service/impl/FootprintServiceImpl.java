@@ -42,7 +42,7 @@ public class FootprintServiceImpl extends ServiceImpl<FootprintMapper, Footprint
         int ps = pageSize == null || pageSize < 1 || pageSize > 100 ? 10 : pageSize;
         Page<Footprint> page = new Page<>(pn, ps);
         Page<Footprint> footprintPage = lambdaQuery()
-                .eq(Footprint::getUserId, userId.intValue())
+                .eq(Footprint::getUserId, userId)
                 .eq(Footprint::getDeleted, false)
                 .orderByDesc(Footprint::getAddTime)
                 .page(page);
@@ -53,7 +53,7 @@ public class FootprintServiceImpl extends ServiceImpl<FootprintMapper, Footprint
         }
 
         List<Long> goodsIds = records.stream()
-                .map(f -> f.getGoodsId().longValue())
+                .map(f -> f.getGoodsId())
                 .collect(Collectors.toList());
         List<GoodsBriefDTO> briefList = goodsClient.listGoodsBriefByIds(goodsIds);
         Map<Long, GoodsBriefDTO> briefMap = briefList.stream()
@@ -61,9 +61,9 @@ public class FootprintServiceImpl extends ServiceImpl<FootprintMapper, Footprint
 
         List<FootprintVO> voList = records.stream().map(f -> {
             FootprintVO vo = new FootprintVO();
-            vo.setId(f.getId().longValue());
-            vo.setGoodsId(f.getGoodsId().longValue());
-            GoodsBriefDTO brief = briefMap.get(f.getGoodsId().longValue());
+            vo.setId(f.getId());
+            vo.setGoodsId(f.getGoodsId());
+            GoodsBriefDTO brief = briefMap.get(f.getGoodsId());
             if (brief != null) {
                 vo.setGoodsName(brief.getName());
                 vo.setPicUrl(brief.getPicUrl());
@@ -89,12 +89,12 @@ public class FootprintServiceImpl extends ServiceImpl<FootprintMapper, Footprint
         // 同商品保留最近一次：删除旧记录后插入新记录
         com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Footprint> wrapper =
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Footprint>()
-                        .eq(Footprint::getUserId, userId.intValue())
-                        .eq(Footprint::getGoodsId, goodsId.intValue());
+                        .eq(Footprint::getUserId, userId)
+                        .eq(Footprint::getGoodsId, goodsId);
         remove(wrapper);
         Footprint footprint = new Footprint()
-                .setUserId(userId.intValue())
-                .setGoodsId(goodsId.intValue())
+                .setUserId(userId)
+                .setGoodsId(goodsId)
                 .setAddTime(java.time.LocalDateTime.now())
                 .setUpdateTime(java.time.LocalDateTime.now())
                 .setDeleted(false);

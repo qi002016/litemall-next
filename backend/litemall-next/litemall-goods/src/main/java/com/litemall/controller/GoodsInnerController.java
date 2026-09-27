@@ -1,5 +1,6 @@
 package com.litemall.controller;
 
+import cn.hutool.core.convert.Convert;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.litemall.cache.CacheService;
@@ -65,7 +66,7 @@ public class GoodsInnerController {
     @GetMapping("/product/default")
     public GoodsProductInfoDTO getDefaultProduct(@RequestParam("goodsId") Long goodsId) {
         List<GoodsProduct> products = goodsProductMapper.selectList(new LambdaQueryWrapper<GoodsProduct>()
-                .eq(GoodsProduct::getGoodsId, goodsId.intValue())
+                .eq(GoodsProduct::getGoodsId, goodsId)
                 .eq(GoodsProduct::getDeleted, false)
                 .orderByAsc(GoodsProduct::getId));
         if (products.isEmpty()) {
@@ -79,8 +80,8 @@ public class GoodsInnerController {
         Goods goods = goodsMapper.selectById(product.getGoodsId());
 
         GoodsProductInfoDTO dto = new GoodsProductInfoDTO();
-        dto.setId(product.getId().longValue());
-        dto.setGoodsId(product.getGoodsId().longValue());
+        dto.setId(product.getId());
+        dto.setGoodsId(product.getGoodsId());
         dto.setPrice(product.getPrice());
         dto.setSpecifications(product.getSpecifications());
         dto.setUrl(product.getUrl());
@@ -94,9 +95,11 @@ public class GoodsInnerController {
 
     @Operation(summary = "扣减货品库存（下单场景）")
     @PostMapping("/product/deduct")
-    public void deductStock(@RequestBody Map<String, Integer> param) {
-        Integer productId = param.get("productId");
-        Integer number = param.get("number");
+    public void deductStock(@RequestBody Map<String, Object> param) {
+        // M10：请求体容器放宽为 Object，货品ID 按 64 位解析（原 Map<String,Integer> 会在 id>2^31 时反序列化失败）；
+        // 数量仍为 Integer（number 属数量语义，不改类型），JSON 线上格式不变
+        Long productId = Convert.toLong(param.get("productId"));
+        Integer number = Convert.toInt(param.get("number"));
         if (productId == null || number == null || number <= 0) {
             throw new BadRequestException("扣库存参数错误");
         }
@@ -114,9 +117,10 @@ public class GoodsInnerController {
 
     @Operation(summary = "回补货品库存（取消订单场景）")
     @PostMapping("/product/release")
-    public void releaseStock(@RequestBody Map<String, Integer> param) {
-        Integer productId = param.get("productId");
-        Integer number = param.get("number");
+    public void releaseStock(@RequestBody Map<String, Object> param) {
+        // M10：同上，货品ID 按 64 位解析，数量保持 Integer
+        Long productId = Convert.toLong(param.get("productId"));
+        Integer number = Convert.toInt(param.get("number"));
         if (productId == null || number == null || number <= 0) {
             throw new BadRequestException("回补库存参数错误");
         }
@@ -137,7 +141,7 @@ public class GoodsInnerController {
             throw new BadRequestException("扣库存参数错误");
         }
         for (StockChangeDTO.Item item : items) {
-            Integer productId = validateItem(item, "扣库存参数错误");
+            Long productId = validateItem(item, "扣库存参数错误");
             int rows = goodsProductMapper.update(null, new LambdaUpdateWrapper<GoodsProduct>()
                     .eq(GoodsProduct::getId, productId)
                     .eq(GoodsProduct::getDeleted, false)
@@ -160,7 +164,7 @@ public class GoodsInnerController {
             throw new BadRequestException("回补库存参数错误");
         }
         for (StockChangeDTO.Item item : items) {
-            Integer productId = validateItem(item, "回补库存参数错误");
+            Long productId = validateItem(item, "回补库存参数错误");
             goodsProductMapper.update(null, new LambdaUpdateWrapper<GoodsProduct>()
                     .eq(GoodsProduct::getId, productId)
                     .eq(GoodsProduct::getDeleted, false)
@@ -170,18 +174,18 @@ public class GoodsInnerController {
     }
 
     /** M2：批量变更项参数校验，返回可用于 SQL 的 productId */
-    private Integer validateItem(StockChangeDTO.Item item, String errorMsg) {
+    private Long validateItem(StockChangeDTO.Item item, String errorMsg) {
         if (item == null || item.getProductId() == null || item.getNumber() == null || item.getNumber() <= 0) {
             throw new BadRequestException(errorMsg);
         }
-        return item.getProductId().intValue();
+        return item.getProductId();
     }
 
     /**
      * H6：按货品ID找到商品ID并删除其实时库存缓存。
      * 删除失败不阻断主流程（库存本身已落库，最坏情况是缓存多存活一个短 TTL）。
      */
-    private void evictStock(Integer productId) {
+    private void evictStock(Long productId) {
         GoodsProduct product = goodsProductMapper.selectById(productId);
         if (product == null || product.getGoodsId() == null) {
             return;
@@ -195,13 +199,12 @@ public class GoodsInnerController {
         if (ids == null || ids.isEmpty()) {
             return new ArrayList<>();
         }
-        List<Integer> idList = ids.stream().map(Long::intValue).collect(Collectors.toList());
         List<Goods> goodsList = goodsMapper.selectList(new LambdaQueryWrapper<Goods>()
-                .in(Goods::getId, idList)
+                .in(Goods::getId, ids)
                 .eq(Goods::getDeleted, false));
         return goodsList.stream().map(g -> {
             GoodsBriefDTO dto = new GoodsBriefDTO();
-            dto.setId(g.getId().longValue());
+            dto.setId(g.getId());
             dto.setName(g.getName());
             dto.setPicUrl(g.getPicUrl());
             return dto;
@@ -238,7 +241,7 @@ public class GoodsInnerController {
 
     @Operation(summary = "管理端删除商品")
     @DeleteMapping("/admin/delete")
-    public void adminDelete(@RequestParam("id") Integer id) {
+    public void adminDelete(@RequestParam("id") Long id) {
         goodsService.adminDeleteGoods(id);
     }
 }

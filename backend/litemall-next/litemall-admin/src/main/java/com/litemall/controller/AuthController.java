@@ -44,7 +44,7 @@ public class AuthController {
         if (admin == null || !passwordEncoder.matches(password, admin.getPassword())) {
             return Result.error("账号或密码错误");
         }
-        String token = jwtTool.createToken(admin.getId().longValue(), TokenPrincipal.ROLE_ADMIN,
+        String token = jwtTool.createToken(admin.getId(), TokenPrincipal.ROLE_ADMIN,
                 TokenPrincipal.AUD_ADMIN, jwtProperties.getTokenTTL());
         Map<String, Object> data = new HashMap<>();
         data.put("token", token);

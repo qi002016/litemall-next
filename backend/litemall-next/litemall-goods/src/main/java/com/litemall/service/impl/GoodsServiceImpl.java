@@ -186,7 +186,7 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
                 .setUpdateTime(now);
         save(goods);
         evictGoodsCache(goods.getId());
-        return goods.getId() == null ? null : goods.getId().longValue();
+        return goods.getId();
     }
 
     @Override
@@ -211,7 +211,7 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
     }
 
     @Override
-    public void adminDeleteGoods(Integer id) {
+    public void adminDeleteGoods(Long id) {
         if (id == null) {
             throw new BadRequestException("商品ID不能为空");
         }
@@ -233,7 +233,7 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
      * 走 {@link CacheService#del(String)}（Redis 级删除 + 跨节点失效广播），
      * 与 H6 库存变更的失效方式一致，避免管理端改价/改图后 C 端长时间读到旧详情。
      */
-    private void evictGoodsCache(Integer goodsId) {
+    private void evictGoodsCache(Long goodsId) {
         if (goodsId == null) {
             return;
         }

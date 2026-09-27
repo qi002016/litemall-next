@@ -16,7 +16,7 @@ import lombok.Data;
 public class UserStatusDTO {
 
     @Schema(description = "用户ID")
-    private Integer id;
+    private Long id;
 
     @Schema(description = "目标状态：0 可用，1 禁用，2 注销")
     private Integer status;

@@ -74,7 +74,7 @@ public interface MarketingClient {
      * @return 新建优惠券ID
      */
     @PostMapping("/inner/market/admin/coupon/create")
-    Integer adminCreateCoupon(@RequestBody CouponDTO dto);
+    Long adminCreateCoupon(@RequestBody CouponDTO dto);
 
     /**
      * 管理端更新优惠券（仅更新非空字段）
@@ -90,7 +90,7 @@ public interface MarketingClient {
      * @param id 优惠券ID
      */
     @DeleteMapping("/inner/market/admin/coupon/delete")
-    void adminDeleteCoupon(@RequestParam("id") Integer id);
+    void adminDeleteCoupon(@RequestParam("id") Long id);
 
     /**
      * 管理端广告分页列表
@@ -112,7 +112,7 @@ public interface MarketingClient {
      * @return 新建广告ID
      */
     @PostMapping("/inner/market/admin/ad/create")
-    Integer adminCreateAd(@RequestBody AdDTO dto);
+    Long adminCreateAd(@RequestBody AdDTO dto);
 
     /**
      * 管理端更新广告（仅更新非空字段）
@@ -128,7 +128,7 @@ public interface MarketingClient {
      * @param id 广告ID
      */
     @DeleteMapping("/inner/market/admin/ad/delete")
-    void adminDeleteAd(@RequestParam("id") Integer id);
+    void adminDeleteAd(@RequestParam("id") Long id);
 
     /**
      * 管理端专题分页列表
@@ -150,7 +150,7 @@ public interface MarketingClient {
      * @return 新建专题ID
      */
     @PostMapping("/inner/market/admin/topic/create")
-    Integer adminCreateTopic(@RequestBody TopicDTO dto);
+    Long adminCreateTopic(@RequestBody TopicDTO dto);
 
     /**
      * 管理端更新专题（仅更新非空字段）
@@ -166,5 +166,5 @@ public interface MarketingClient {
      * @param id 专题ID
      */
     @DeleteMapping("/inner/market/admin/topic/delete")
-    void adminDeleteTopic(@RequestParam("id") Integer id);
+    void adminDeleteTopic(@RequestParam("id") Long id);
 }

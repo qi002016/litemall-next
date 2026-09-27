@@ -56,7 +56,7 @@ public class MarketingController {
     }
 
     @DeleteMapping("/coupon/delete")
-    public Result<Void> couponDelete(@RequestParam Integer id) {
+    public Result<Void> couponDelete(@RequestParam Long id) {
         marketingClient.adminDeleteCoupon(id);
         return Result.ok();
     }
@@ -84,7 +84,7 @@ public class MarketingController {
     }
 
     @DeleteMapping("/ad/delete")
-    public Result<Void> adDelete(@RequestParam Integer id) {
+    public Result<Void> adDelete(@RequestParam Long id) {
         marketingClient.adminDeleteAd(id);
         return Result.ok();
     }
@@ -112,7 +112,7 @@ public class MarketingController {
     }
 
     @DeleteMapping("/topic/delete")
-    public Result<Void> topicDelete(@RequestParam Integer id) {
+    public Result<Void> topicDelete(@RequestParam Long id) {
         marketingClient.adminDeleteTopic(id);
         return Result.ok();
     }

@@ -44,9 +44,9 @@ public class AftersaleServiceImpl extends ServiceImpl<AftersaleMapper, Aftersale
         }
 
         // 校验订单属于当前用户且非删除
-        Order order = orderMapper.selectById(dto.getOrderId().intValue());
+        Order order = orderMapper.selectById(dto.getOrderId());
         if (order == null || Boolean.TRUE.equals(order.getDeleted())
-                || !order.getUserId().equals(userId.intValue())) {
+                || !order.getUserId().equals(userId)) {
             throw new BadRequestException("订单不存在");
         }
         // 仅已确认收货的订单可申请售后
@@ -58,7 +58,7 @@ public class AftersaleServiceImpl extends ServiceImpl<AftersaleMapper, Aftersale
         Aftersale aftersale = new Aftersale()
                 .setAftersaleSn(generateAftersaleSn())
                 .setOrderId(order.getId())
-                .setUserId(userId.intValue())
+                .setUserId(userId)
                 .setType(1)
                 .setReason(dto.getReason())
                 .setAmount(dto.getAmount())
@@ -76,7 +76,7 @@ public class AftersaleServiceImpl extends ServiceImpl<AftersaleMapper, Aftersale
         orderMapper.updateById(order);
 
         AftersaleApplyVO vo = new AftersaleApplyVO();
-        vo.setAftersaleId(aftersale.getId().longValue());
+        vo.setAftersaleId(aftersale.getId());
         vo.setStatus("pending");
         return vo;
     }

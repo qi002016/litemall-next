@@ -406,15 +406,15 @@ public class CouponServiceImpl extends ServiceImpl<CouponMapper, Coupon> impleme
         }
 
         // 批量查询券信息，补充 name/discount/min
-        List<Integer> couponIds = couponUserList.stream()
-                .map(c -> c.getCouponId().intValue())
+        List<Long> couponIds = couponUserList.stream()
+                .map(c -> c.getCouponId())
                 .collect(Collectors.toList());
-        Map<Integer, Coupon> couponMap = listByIds(couponIds).stream()
+        Map<Long, Coupon> couponMap = listByIds(couponIds).stream()
                 .collect(Collectors.toMap(Coupon::getId, c -> c, (a, b) -> a));
 
         List<CouponUserVO> couponUserVOList = couponUserList.stream().map(couponUser -> {
             CouponUserVO vo = BeanUtils.copyBean(couponUser, CouponUserVO.class);
-            Coupon coupon = couponMap.get(couponUser.getCouponId().intValue());
+            Coupon coupon = couponMap.get(couponUser.getCouponId());
             if (coupon != null) {
                 vo.setName(coupon.getName());
                 vo.setDiscount(coupon.getDiscount());

@@ -29,7 +29,7 @@ public class Goods implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @TableId(value = "id", type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     @Schema(description = "商品编号")
     private String goodsSn;
@@ -38,9 +38,9 @@ public class Goods implements Serializable {
     private String name;
 
     @Schema(description = "商品所属类目ID")
-    private Integer categoryId;
+    private Long categoryId;
 
-    private Integer brandId;
+    private Long brandId;
 
     @Schema(description = "商品宣传图片列表，采用JSON数组格式")
     private String gallery;

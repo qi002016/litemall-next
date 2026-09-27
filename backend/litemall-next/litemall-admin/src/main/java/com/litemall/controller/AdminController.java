@@ -72,7 +72,7 @@ public class AdminController {
 
     @PutMapping("/reset-password")
     public Result<Void> resetPwd(@RequestBody Map<String, Object> body) {
-        Integer id = (Integer) body.get("id");
+        Long id = asLong(body.get("id"));
         String raw = (String) body.get("password");
         AdminAccount a = new AdminAccount();
         a.setId(id);
@@ -83,12 +83,23 @@ public class AdminController {
     }
 
     @DeleteMapping("/delete")
-    public Result<Void> delete(@RequestParam Integer id) {
+    public Result<Void> delete(@RequestParam Long id) {
         AdminAccount a = new AdminAccount();
         a.setId(id);
         a.setDeleted(true);
         a.setUpdateTime(LocalDateTime.now());
         adminAccountMapper.updateById(a);
         return Result.ok();
+    }
+
+    /** 请求体中的 ID：JSON 整数字面量既可能是 Integer 也可能是 Long，统一按 64 位解析 */
+    private Long asLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        return Long.valueOf(value.toString());
     }
 }

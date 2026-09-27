@@ -50,7 +50,7 @@ public class CollectServiceImpl extends ServiceImpl<CollectMapper, Collect> impl
         int ps = pageSize == null || pageSize < 1 || pageSize > 100 ? 10 : pageSize;
         Page<Collect> page = new Page<>(pn, ps);
         Page<Collect> collectPage = lambdaQuery()
-                .eq(Collect::getUserId, userId.intValue())
+                .eq(Collect::getUserId, userId)
                 .eq(Collect::getType, TYPE_GOODS)
                 .eq(Collect::getDeleted, false)
                 .orderByDesc(Collect::getAddTime)
@@ -63,7 +63,7 @@ public class CollectServiceImpl extends ServiceImpl<CollectMapper, Collect> impl
 
         // 批量查商品信息（Feign）
         List<Long> goodsIds = records.stream()
-                .map(c -> c.getValueId().longValue())
+                .map(c -> c.getValueId())
                 .collect(Collectors.toList());
         List<GoodsBriefDTO> briefList = goodsClient.listGoodsBriefByIds(goodsIds);
         Map<Long, GoodsBriefDTO> briefMap = briefList.stream()
@@ -71,9 +71,9 @@ public class CollectServiceImpl extends ServiceImpl<CollectMapper, Collect> impl
 
         List<CollectVO> voList = records.stream().map(c -> {
             CollectVO vo = new CollectVO();
-            vo.setId(c.getId().longValue());
-            vo.setGoodsId(c.getValueId().longValue());
-            GoodsBriefDTO brief = briefMap.get(c.getValueId().longValue());
+            vo.setId(c.getId());
+            vo.setGoodsId(c.getValueId());
+            GoodsBriefDTO brief = briefMap.get(c.getValueId());
             if (brief != null) {
                 vo.setGoodsName(brief.getName());
                 vo.setPicUrl(brief.getPicUrl());
@@ -93,8 +93,8 @@ public class CollectServiceImpl extends ServiceImpl<CollectMapper, Collect> impl
         }
 
         Collect exist = lambdaQuery()
-                .eq(Collect::getUserId, userId.intValue())
-                .eq(Collect::getValueId, dto.getGoodsId().intValue())
+                .eq(Collect::getUserId, userId)
+                .eq(Collect::getValueId, dto.getGoodsId())
                 .eq(Collect::getType, TYPE_GOODS)
                 .one();
 
@@ -103,8 +103,8 @@ public class CollectServiceImpl extends ServiceImpl<CollectMapper, Collect> impl
             // 收藏
             if (exist == null) {
                 Collect collect = new Collect()
-                        .setUserId(userId.intValue())
-                        .setValueId(dto.getGoodsId().intValue())
+                        .setUserId(userId)
+                        .setValueId(dto.getGoodsId())
                         .setType(TYPE_GOODS)
                         .setAddTime(now)
                         .setUpdateTime(now)

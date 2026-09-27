@@ -56,9 +56,9 @@ class AdminOrderFeignTest {
     @DisplayName("H5：/admin/order/list 直接透传 order 服务分页结果")
     void listDelegatesToOrderClient() {
         OrderAdminDTO row = new OrderAdminDTO();
-        row.setId(7);
+        row.setId(7L);
         row.setOrderSn("SN7");
-        row.setUserId(1);
+        row.setUserId(1L);
         row.setOrderAmount(new BigDecimal("19.90"));
         row.setStatus("undelivered");
         row.setAddTime(LocalDateTime.of(2026, 9, 27, 10, 0));

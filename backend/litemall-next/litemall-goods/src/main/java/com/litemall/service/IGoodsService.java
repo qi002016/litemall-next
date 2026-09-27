@@ -67,5 +67,5 @@ public interface IGoodsService extends IService<Goods> {
      *
      * @param id 商品ID
      */
-    void adminDeleteGoods(Integer id);
+    void adminDeleteGoods(Long id);
 }

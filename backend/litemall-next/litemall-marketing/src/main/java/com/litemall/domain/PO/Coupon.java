@@ -33,7 +33,7 @@ public class Coupon implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @TableId(value = "id", type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     @Schema(description = "优惠券名称")
     private String name;

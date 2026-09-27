@@ -8,7 +8,7 @@ import lombok.Data;
 public class AddressVO {
 
     @Schema(description = "地址 ID")
-    private Integer id;
+    private Long id;
 
     @Schema(description = "收货人姓名")
     private String name;

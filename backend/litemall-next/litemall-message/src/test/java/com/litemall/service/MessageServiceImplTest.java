@@ -71,7 +71,7 @@ class MessageServiceImplTest {
     @Test
     @DisplayName("消息不存在时详情查询拒绝")
     void getMessageDetail_notExist_rejects() {
-        when(userMessageMapper.selectById(100)).thenReturn(null);
+        when(userMessageMapper.selectById(100L)).thenReturn(null);
 
         assertThrows(BadRequestException.class, () -> messageService.getMessageDetail(100L));
     }
@@ -80,7 +80,7 @@ class MessageServiceImplTest {
     @Test
     @DisplayName("他人的消息详情查询拒绝")
     void getMessageDetail_otherUser_forbidden() {
-        when(userMessageMapper.selectById(200)).thenReturn(message(200, 9L, "system", "他人", "内容", false,
+        when(userMessageMapper.selectById(200L)).thenReturn(message(200, 9L, "system", "他人", "内容", false,
                 LocalDateTime.now()));
 
         assertThrows(ForbiddenException.class, () -> messageService.getMessageDetail(200L));
@@ -89,7 +89,7 @@ class MessageServiceImplTest {
     @Test
     @DisplayName("本人消息详情返回完整内容")
     void getMessageDetail_own_returnsFull() {
-        when(userMessageMapper.selectById(300)).thenReturn(message(300, 1L, "order", "订单消息", "完整富文本内容",
+        when(userMessageMapper.selectById(300L)).thenReturn(message(300, 1L, "order", "订单消息", "完整富文本内容",
                 false, LocalDateTime.of(2026, 9, 25, 7, 0)));
 
         MessageDetailVO vo = messageService.getMessageDetail(300L);
@@ -102,7 +102,7 @@ class MessageServiceImplTest {
     @Test
     @DisplayName("未读消息标记已读后更新")
     void markRead_unread_updates() {
-        when(userMessageMapper.selectById(400)).thenReturn(message(400, 1, "system", "标题", "内容", false,
+        when(userMessageMapper.selectById(400L)).thenReturn(message(400, 1, "system", "标题", "内容", false,
                 LocalDateTime.now()));
         java.util.concurrent.atomic.AtomicReference<UserMessage> captured = new java.util.concurrent.atomic.AtomicReference<>();
         doAnswer(inv -> {
@@ -118,7 +118,7 @@ class MessageServiceImplTest {
     @Test
     @DisplayName("已读消息标记已读不重复更新")
     void markRead_alreadyRead_skipsUpdate() {
-        when(userMessageMapper.selectById(500)).thenReturn(message(500, 1, "system", "标题", "内容", true,
+        when(userMessageMapper.selectById(500L)).thenReturn(message(500, 1, "system", "标题", "内容", true,
                 LocalDateTime.now()));
 
         messageService.markRead(500L);
@@ -133,7 +133,7 @@ class MessageServiceImplTest {
 
         ArgumentCaptor<UserMessage> captor = ArgumentCaptor.forClass(UserMessage.class);
         verify(userMessageMapper).insert(captor.capture());
-        assertEquals(1, captor.getValue().getUserId());
+        assertEquals(1L, captor.getValue().getUserId());
         assertEquals("order", captor.getValue().getType());
         assertEquals("订单已发货", captor.getValue().getTitle());
         assertFalse(captor.getValue().getReadStatus());
@@ -148,9 +148,9 @@ class MessageServiceImplTest {
     private UserMessage message(long id, long userId, String type, String title, String content,
                                 boolean read, LocalDateTime addTime) {
         UserMessage m = new UserMessage();
-        m.setId((int) id);
-        m.setUserId((int) userId);
-        m.setMsgId(1);
+        m.setId(id);
+        m.setUserId(userId);
+        m.setMsgId(1L);
         m.setType(type);
         m.setTitle(title);
         m.setContent(content);

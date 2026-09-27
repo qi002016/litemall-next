@@ -85,7 +85,7 @@ class OrderAdminStateMachineTest {
     @Test
     @DisplayName("H5/状态机：未付款订单发货被拒，且不产生任何订单写入")
     void shipUnpaidOrder_rejected() {
-        when(orderMapper.selectById(1)).thenReturn(order(1, STATUS_UNPAID));
+        when(orderMapper.selectById(1L)).thenReturn(order(1, STATUS_UNPAID));
 
         assertThatThrownBy(() -> orderService.adminShip(shipDTO(1L)))
                 .isInstanceOf(BadRequestException.class)
@@ -97,7 +97,7 @@ class OrderAdminStateMachineTest {
     @Test
     @DisplayName("H5/状态机：已取消订单发货被拒")
     void shipCanceledOrder_rejected() {
-        when(orderMapper.selectById(2)).thenReturn(order(2, STATUS_CANCELED));
+        when(orderMapper.selectById(2L)).thenReturn(order(2, STATUS_CANCELED));
 
         assertThatThrownBy(() -> orderService.adminShip(shipDTO(2L)))
                 .isInstanceOf(BadRequestException.class)
@@ -109,7 +109,7 @@ class OrderAdminStateMachineTest {
     @Test
     @DisplayName("H5/状态机：102 待发货 → 201 已发货，并写入快递信息与发货时间")
     void shipUndeliveredOrder_success() {
-        when(orderMapper.selectById(3)).thenReturn(order(3, STATUS_UNDELIVERED));
+        when(orderMapper.selectById(3L)).thenReturn(order(3, STATUS_UNDELIVERED));
 
         OrderShipDTO dto = shipDTO(3L);
         dto.setShipChannel("SF");
@@ -130,7 +130,7 @@ class OrderAdminStateMachineTest {
     @Test
     @DisplayName("H5/状态机：未付款订单退款被拒（应走取消订单）")
     void refundUnpaidOrder_rejected() {
-        when(orderMapper.selectById(11)).thenReturn(order(11, STATUS_UNPAID));
+        when(orderMapper.selectById(11L)).thenReturn(order(11, STATUS_UNPAID));
 
         assertThatThrownBy(() -> orderService.adminRefund(refundDTO(11L)))
                 .isInstanceOf(BadRequestException.class)
@@ -143,7 +143,7 @@ class OrderAdminStateMachineTest {
     @Test
     @DisplayName("H5/状态机：已取消订单退款被拒，且不回补库存/不回退券")
     void refundCanceledOrder_rejected() {
-        when(orderMapper.selectById(12)).thenReturn(order(12, STATUS_CANCELED));
+        when(orderMapper.selectById(12L)).thenReturn(order(12, STATUS_CANCELED));
 
         assertThatThrownBy(() -> orderService.adminRefund(refundDTO(12L)))
                 .isInstanceOf(BadRequestException.class)
@@ -157,7 +157,7 @@ class OrderAdminStateMachineTest {
     @Test
     @DisplayName("H5/状态机：已退款完成（402）重复退款被拒")
     void refundDoneOrder_rejected() {
-        when(orderMapper.selectById(13)).thenReturn(order(13, STATUS_REFUND_DONE));
+        when(orderMapper.selectById(13L)).thenReturn(order(13, STATUS_REFUND_DONE));
 
         assertThatThrownBy(() -> orderService.adminRefund(refundDTO(13L)))
                 .isInstanceOf(BadRequestException.class)
@@ -169,10 +169,10 @@ class OrderAdminStateMachineTest {
     void refundUndeliveredOrder_compensatesStockAndCoupon() {
         Order order = order(14, STATUS_UNDELIVERED);
         order.setActualPrice(new BigDecimal("88.00"));
-        when(orderMapper.selectById(14)).thenReturn(order);
+        when(orderMapper.selectById(14L)).thenReturn(order);
         when(orderGoodsMapper.selectList(any())).thenReturn(List.of(
-                new OrderGoods().setOrderId(14).setProductId(1001).setNumber(2),
-                new OrderGoods().setOrderId(14).setProductId(1002).setNumber(1)));
+                new OrderGoods().setOrderId(14L).setProductId(1001L).setNumber(2),
+                new OrderGoods().setOrderId(14L).setProductId(1002L).setNumber(1)));
 
         OrderRefundDTO dto = refundDTO(14L);
         dto.setRefundAmount(new BigDecimal("88.00"));
@@ -203,7 +203,7 @@ class OrderAdminStateMachineTest {
     @Test
     @DisplayName("H5/状态机：401 售后中重复退款为幂等（不再写库、不再补偿）")
     void refundRefundingOrder_isIdempotent() {
-        when(orderMapper.selectById(15)).thenReturn(order(15, STATUS_REFUND));
+        when(orderMapper.selectById(15L)).thenReturn(order(15, STATUS_REFUND));
 
         orderService.adminRefund(refundDTO(15L));
 
@@ -215,7 +215,7 @@ class OrderAdminStateMachineTest {
     @Test
     @DisplayName("H5/状态机：订单不存在时拒绝")
     void refundMissingOrder_rejected() {
-        when(orderMapper.selectById(16)).thenReturn(null);
+        when(orderMapper.selectById(16L)).thenReturn(null);
 
         assertThatThrownBy(() -> orderService.adminRefund(refundDTO(16L)))
                 .isInstanceOf(BadRequestException.class)
@@ -224,11 +224,11 @@ class OrderAdminStateMachineTest {
 
     /* ==================== 辅助方法 ==================== */
 
-    private Order order(Integer id, int status) {
+    private Order order(long id, int status) {
         return new Order()
                 .setId(id)
                 .setOrderSn("SN" + id)
-                .setUserId(1)
+                .setUserId(1L)
                 .setOrderStatus(status)
                 .setDeleted(false);
     }

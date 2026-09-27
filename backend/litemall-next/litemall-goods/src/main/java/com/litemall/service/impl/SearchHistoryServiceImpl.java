@@ -69,7 +69,7 @@ public class SearchHistoryServiceImpl extends ServiceImpl<SearchHistoryMapper, S
                 .eq(SearchHistory::getKeyword, keyword)
                 .remove();
         SearchHistory history = new SearchHistory()
-                .setUserId(userId.intValue())
+                .setUserId(userId)
                 .setKeyword(keyword)
                 .setFrom("h5")
                 .setAddTime(LocalDateTime.now())

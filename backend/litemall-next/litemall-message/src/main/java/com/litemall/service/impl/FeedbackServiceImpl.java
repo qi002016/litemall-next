@@ -39,7 +39,7 @@ public class FeedbackServiceImpl extends ServiceImpl<FeedbackMapper, Feedback> i
         List<String> pictures = dto.getPictures();
         LocalDateTime now = LocalDateTime.now();
         Feedback feedback = new Feedback()
-                .setUserId(userId == null ? 0 : userId.intValue())
+                .setUserId(userId == null ? 0L : userId)
                 .setUsername(username)
                 .setMobile(dto.getMobile() == null ? "" : dto.getMobile())
                 .setFeedType("feedback")
@@ -52,7 +52,7 @@ public class FeedbackServiceImpl extends ServiceImpl<FeedbackMapper, Feedback> i
                 .setDeleted(false);
         save(feedback);
         FeedbackVO vo = new FeedbackVO();
-        vo.setFeedbackId(feedback.getId().longValue());
+        vo.setFeedbackId(feedback.getId());
         return vo;
     }
 

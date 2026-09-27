@@ -30,7 +30,7 @@ public class Notice implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @TableId(value = "id", type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     @Schema(description = "公告标题")
     private String title;
@@ -39,7 +39,7 @@ public class Notice implements Serializable {
     private String content;
 
     @Schema(description = "创建管理员ID，系统内置为0")
-    private Integer adminId;
+    private Long adminId;
 
     @Schema(description = "创建时间")
     private LocalDateTime addTime;

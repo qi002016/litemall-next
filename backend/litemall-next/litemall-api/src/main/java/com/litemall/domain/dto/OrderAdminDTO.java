@@ -23,13 +23,13 @@ import java.time.LocalDateTime;
 public class OrderAdminDTO {
 
     @Schema(description = "订单ID")
-    private Integer id;
+    private Long id;
 
     @Schema(description = "订单编号")
     private String orderSn;
 
     @Schema(description = "用户ID")
-    private Integer userId;
+    private Long userId;
 
     /** 改造前取 {@code orderPrice}，前端列名 orderAmount */
     @Schema(description = "订单金额")

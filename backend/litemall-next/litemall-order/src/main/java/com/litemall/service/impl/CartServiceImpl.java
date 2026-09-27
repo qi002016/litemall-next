@@ -37,7 +37,7 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
     public List<CartItemVO> listCart() {
         Long userId = UserContext.getUser();
         List<Cart> carts = lambdaQuery()
-                .eq(Cart::getUserId, userId.intValue())
+                .eq(Cart::getUserId, userId)
                 .eq(Cart::getDeleted, false)
                 .orderByDesc(Cart::getAddTime)
                 .list();
@@ -47,7 +47,7 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
     @Override
     public Map<String, Object> addCart(CartAddDTO dto) {
         Long userId = UserContext.getUser();
-        Integer goodsId = dto.getGoodsId().intValue();
+        Long goodsId = dto.getGoodsId();
 
         // 通过 Feign 查询商品货品信息（价格/规格/图/名）
         // 前端未选规格时 specId 传 0，取该商品默认货品
@@ -55,10 +55,10 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
         if (product == null) {
             throw new RuntimeException("商品规格不存在");
         }
-        Integer productId = product.getId().intValue();
+        Long productId = product.getId();
 
         Cart exist = lambdaQuery()
-                .eq(Cart::getUserId, userId.intValue())
+                .eq(Cart::getUserId, userId)
                 .eq(Cart::getGoodsId, goodsId)
                 .eq(Cart::getProductId, productId)
                 .eq(Cart::getDeleted, false)
@@ -72,7 +72,7 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
             total = exist.getNumber();
         } else {
             Cart cart = new Cart();
-            cart.setUserId(userId.intValue());
+            cart.setUserId(userId);
             cart.setGoodsId(goodsId);
             cart.setProductId(productId);
             cart.setNumber(dto.getNumber());
@@ -99,10 +99,10 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
     @Override
     public CartItemVO updateCart(CartUpdateDTO dto) {
         Long userId = UserContext.getUser();
-        Integer productId = resolveProductId(dto.getGoodsId(), dto.getSpecId());
+        Long productId = resolveProductId(dto.getGoodsId(), dto.getSpecId());
         Cart cart = lambdaQuery()
-                .eq(Cart::getUserId, userId.intValue())
-                .eq(Cart::getGoodsId, dto.getGoodsId().intValue())
+                .eq(Cart::getUserId, userId)
+                .eq(Cart::getGoodsId, dto.getGoodsId())
                 .eq(Cart::getProductId, productId)
                 .eq(Cart::getDeleted, false)
                 .one();
@@ -123,10 +123,10 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
     @Override
     public void deleteCart(Long goodsId, Long specId) {
         Long userId = UserContext.getUser();
-        Integer productId = resolveProductId(goodsId, specId);
+        Long productId = resolveProductId(goodsId, specId);
         Cart cart = lambdaQuery()
-                .eq(Cart::getUserId, userId.intValue())
-                .eq(Cart::getGoodsId, goodsId.intValue())
+                .eq(Cart::getUserId, userId)
+                .eq(Cart::getGoodsId, goodsId)
                 .eq(Cart::getProductId, productId)
                 .eq(Cart::getDeleted, false)
                 .one();
@@ -140,9 +140,9 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
     @Override
     public OrderConfirmVO confirmOrder(OrderConfirmDTO dto) {
         Long userId = UserContext.getUser();
-        List<Cart> carts = listByIds(dto.getCartIds().stream().map(Long::intValue).collect(Collectors.toList()));
+        List<Cart> carts = listByIds(dto.getCartIds());
         BigDecimal goodsAmount = carts.stream()
-                .filter(c -> c.getUserId().equals(userId.intValue()) && !Boolean.TRUE.equals(c.getDeleted()))
+                .filter(c -> c.getUserId().equals(userId) && !Boolean.TRUE.equals(c.getDeleted()))
                 .map(c -> c.getPrice().multiply(BigDecimal.valueOf(c.getNumber())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
@@ -162,14 +162,14 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
 
     private CartItemVO toVO(Cart cart) {
         CartItemVO vo = new CartItemVO();
-        vo.setId(cart.getId().longValue());
-        vo.setGoodsId(cart.getGoodsId().longValue());
+        vo.setId(cart.getId());
+        vo.setGoodsId(cart.getGoodsId());
         vo.setGoodsName(cart.getGoodsName());
         vo.setGoodsPic(cart.getPicUrl());
         vo.setPrice(cart.getPrice());
         vo.setNumber(cart.getNumber());
         vo.setChecked(cart.getChecked());
-        vo.setSpecId(cart.getProductId().longValue());
+        vo.setSpecId(cart.getProductId());
         vo.setSpec(parseSpec(cart.getSpecifications()));
         return vo;
     }
@@ -183,12 +183,12 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
     }
 
     /** 解析真实货品ID（容错 specId=0，取默认货品）；查不到返回 null */
-    private Integer resolveProductId(Long goodsId, Long specId) {
+    private Long resolveProductId(Long goodsId, Long specId) {
         if (specId != null && specId != 0) {
-            return specId.intValue();
+            return specId;
         }
         GoodsProductInfoDTO product = resolveProduct(goodsId, specId);
-        return product == null ? null : product.getId().intValue();
+        return product == null ? null : product.getId();
     }
 
     /** specifications 形如 ["红色","XL"]，拼成 "红色 / XL" */

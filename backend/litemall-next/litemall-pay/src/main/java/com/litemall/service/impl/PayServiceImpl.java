@@ -138,8 +138,8 @@ public class PayServiceImpl extends ServiceImpl<RefundMapper, Refund> implements
         }
         LocalDateTime now = LocalDateTime.now();
         Refund refund = new Refund()
-                .setOrderId(dto.getOrderId().intValue())
-                .setUserId(info.getUserId().intValue())
+                .setOrderId(dto.getOrderId())
+                .setUserId(info.getUserId())
                 .setAmount(dto.getAmount())
                 .setReason(dto.getReason())
                 .setStatus(0)
@@ -149,7 +149,7 @@ public class PayServiceImpl extends ServiceImpl<RefundMapper, Refund> implements
         save(refund);
         orderClient.markRefunded(dto.getOrderId(), dto.getAmount());
         RefundVO vo = new RefundVO();
-        vo.setRefundId(refund.getId().longValue());
+        vo.setRefundId(refund.getId());
         vo.setStatus("processing");
         return vo;
     }

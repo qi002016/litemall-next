@@ -27,7 +27,7 @@ public class NoticeServiceImpl extends ServiceImpl<NoticeMapper, Notice> impleme
                 .page(page);
         List<NoticeVO> voList = p.getRecords().stream().map(n -> {
             NoticeVO vo = new NoticeVO();
-            vo.setId(n.getId().longValue());
+            vo.setId(n.getId());
             vo.setTitle(n.getTitle());
             vo.setContent(n.getContent());
             vo.setAddTime(n.getAddTime() == null ? null : n.getAddTime().format(DT));

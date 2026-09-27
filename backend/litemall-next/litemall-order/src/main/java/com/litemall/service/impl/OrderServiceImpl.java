@@ -173,13 +173,12 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
         // 2.校验并锁定购物车项（属于当前用户、未删除）
         List<Long> cartIdList = dto.getCartIds();
-        List<Cart> carts = cartMapper.selectByIds(
-                cartIdList.stream().map(Long::intValue).collect(Collectors.toList()));
+        List<Cart> carts = cartMapper.selectByIds(cartIdList);
         if (carts.isEmpty()) {
             throw new BadRequestException("购物车为空");
         }
         List<Cart> validCarts = carts.stream()
-                .filter(c -> c.getUserId().equals(userId.intValue()))
+                .filter(c -> c.getUserId().equals(userId))
                 .filter(c -> !Boolean.TRUE.equals(c.getDeleted()))
                 .toList();
         if (validCarts.size() != cartIdList.size()) {
@@ -193,10 +192,10 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         }
 
         // 4.校验商品规格并计算商品总额
-        Map<Integer, GoodsProductInfoDTO> productMap = new HashMap<>();
+        Map<Long, GoodsProductInfoDTO> productMap = new HashMap<>();
         BigDecimal goodsAmount = BigDecimal.ZERO;
         for (Cart cart : validCarts) {
-            GoodsProductInfoDTO product = goodsClient.getProductInfo(cart.getProductId().longValue());
+            GoodsProductInfoDTO product = goodsClient.getProductInfo(cart.getProductId());
             if (product == null) {
                 throw new BadRequestException("商品规格不存在");
             }
@@ -222,7 +221,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         // 8.建订单
         LocalDateTime now = LocalDateTime.now();
         Order order = new Order()
-                .setUserId(userId.intValue())
+                .setUserId(userId)
                 .setOrderSn(generateOrderSn())
                 .setOrderStatus(STATUS_UNPAID)
                 .setAftersaleStatus(0)
@@ -275,7 +274,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         if (dto.getCouponId() != null) {
             CouponUseDTO use = new CouponUseDTO();
             use.setCouponUserId(dto.getCouponId());
-            use.setOrderId(order.getId().longValue());
+            use.setOrderId(order.getId());
             marketingClient.useCoupon(use);
         }
 
@@ -288,7 +287,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         }
 
         OrderSubmitVO vo = new OrderSubmitVO();
-        vo.setOrderId(order.getId().longValue());
+        vo.setOrderId(order.getId());
         vo.setOrderSn(order.getOrderSn());
         vo.setOrderAmount(orderAmount);
         return vo;
@@ -303,7 +302,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
         Integer statusCode = parseStatus(status);
         Page<Order> orderPage = lambdaQuery()
-                .eq(Order::getUserId, userId.intValue())
+                .eq(Order::getUserId, userId)
                 .eq(Order::getDeleted, false)
                 .eq(statusCode != null, Order::getOrderStatus, statusCode)
                 .orderByDesc(Order::getAddTime)
@@ -311,7 +310,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
         List<Order> orders = orderPage.getRecords();
         // M1：一次 IN 查询取回本页全部订单商品（原先每行单独查 => 页大小 10 时 11 次查询）
-        Map<Integer, List<OrderGoods>> goodsByOrder = loadOrderGoods(orders);
+        Map<Long, List<OrderGoods>> goodsByOrder = loadOrderGoods(orders);
         List<OrderListItemVO> voList = orders.stream()
                 .map(o -> toListItemVO(o, goodsByOrder.getOrDefault(o.getId(), List.of())))
                 .collect(Collectors.toList());
@@ -322,8 +321,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     public OrderDetailVO getOrderDetail(Long orderId) {
         Long userId = UserContext.getUser();
         Order order = lambdaQuery()
-                .eq(Order::getId, orderId.intValue())
-                .eq(Order::getUserId, userId.intValue())
+                .eq(Order::getId, orderId)
+                .eq(Order::getUserId, userId)
                 .eq(Order::getDeleted, false)
                 .one();
         if (order == null) {
@@ -331,7 +330,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         }
 
         OrderDetailVO vo = new OrderDetailVO();
-        vo.setOrderId(order.getId().longValue());
+        vo.setOrderId(order.getId());
         vo.setOrderSn(order.getOrderSn());
         vo.setStatus(statusText(order.getOrderStatus()));
         vo.setConsignee(order.getConsignee());
@@ -357,8 +356,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     public void cancelOrder(Long orderId) {
         Long userId = UserContext.getUser();
         Order order = lambdaQuery()
-                .eq(Order::getId, orderId.intValue())
-                .eq(Order::getUserId, userId.intValue())
+                .eq(Order::getId, orderId)
+                .eq(Order::getUserId, userId)
                 .eq(Order::getDeleted, false)
                 .one();
         if (order == null) {
@@ -383,8 +382,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     public void confirmReceive(Long orderId) {
         Long userId = UserContext.getUser();
         Order order = lambdaQuery()
-                .eq(Order::getId, orderId.intValue())
-                .eq(Order::getUserId, userId.intValue())
+                .eq(Order::getId, orderId)
+                .eq(Order::getUserId, userId)
                 .eq(Order::getDeleted, false)
                 .one();
         if (order == null) {
@@ -516,7 +515,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         if (orderId == null) {
             throw new BadRequestException("订单ID不能为空");
         }
-        Order order = getById(orderId.intValue());
+        Order order = getById(orderId);
         if (order == null || Boolean.TRUE.equals(order.getDeleted())) {
             throw new BadRequestException("订单不存在");
         }
@@ -545,7 +544,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
         // 回退优惠券（couponUserId 为空时 marketing 服务按 orderId 反查）
         CouponUseDTO rollback = new CouponUseDTO();
-        rollback.setOrderId(order.getId().longValue());
+        rollback.setOrderId(order.getId());
         marketingClient.rollbackCoupon(rollback);
     }
 
@@ -553,7 +552,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
     private OrderListItemVO toListItemVO(Order order, List<OrderGoods> goodsList) {
         OrderListItemVO vo = new OrderListItemVO();
-        vo.setOrderId(order.getId().longValue());
+        vo.setOrderId(order.getId());
         vo.setOrderSn(order.getOrderSn());
         vo.setStatus(statusText(order.getOrderStatus()));
         vo.setGoodsAmount(order.getGoodsPrice());
@@ -566,7 +565,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         // 列表商品简述（不含 productId/specifications/commentStatus）；goodsList 由 listOrder 批量预取
         vo.setGoodsList(goodsList.stream().map(og -> {
             OrderGoodsVO g = new OrderGoodsVO();
-            g.setGoodsId(og.getGoodsId().longValue());
+            g.setGoodsId(og.getGoodsId());
             g.setGoodsName(og.getGoodsName());
             g.setPicUrl(og.getPicUrl());
             g.setNumber(og.getNumber());
@@ -577,30 +576,30 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     }
 
     /** M1：批量查询本页订单的商品行并按 orderId 分组，消除订单列表的 N+1 查询 */
-    private Map<Integer, List<OrderGoods>> loadOrderGoods(List<Order> orders) {
+    private Map<Long, List<OrderGoods>> loadOrderGoods(List<Order> orders) {
         if (orders == null || orders.isEmpty()) {
             return Map.of();
         }
-        List<Integer> orderIds = orders.stream().map(Order::getId).collect(Collectors.toList());
+        List<Long> orderIds = orders.stream().map(Order::getId).collect(Collectors.toList());
         List<OrderGoods> all = orderGoodsMapper.selectList(new LambdaQueryWrapper<OrderGoods>()
                 .in(OrderGoods::getOrderId, orderIds)
                 .eq(OrderGoods::getDeleted, false));
         return all.stream().collect(Collectors.groupingBy(OrderGoods::getOrderId));
     }
 
-    private List<OrderGoodsVO> listOrderGoods(Integer orderId) {
+    private List<OrderGoodsVO> listOrderGoods(Long orderId) {
         List<OrderGoods> goodsList = orderGoodsMapper.selectList(
                 new LambdaQueryWrapper<OrderGoods>()
                         .eq(OrderGoods::getOrderId, orderId)
                         .eq(OrderGoods::getDeleted, false));
         return goodsList.stream().map(og -> {
             OrderGoodsVO g = new OrderGoodsVO();
-            g.setGoodsId(og.getGoodsId().longValue());
+            g.setGoodsId(og.getGoodsId());
             g.setGoodsName(og.getGoodsName());
             g.setPicUrl(og.getPicUrl());
             g.setNumber(og.getNumber());
             g.setPrice(og.getPrice());
-            g.setProductId(og.getProductId().longValue());
+            g.setProductId(og.getProductId());
             g.setSpecifications(parseSpecList(og.getSpecifications()));
             g.setCommentStatus(og.getComment() == null ? 0 : og.getComment());
             return g;
@@ -684,9 +683,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     }
 
     /** M2：构造单个库存变更项 */
-    private StockChangeDTO.Item stockItem(Integer productId, Integer number) {
+    private StockChangeDTO.Item stockItem(Long productId, Integer number) {
         StockChangeDTO.Item item = new StockChangeDTO.Item();
-        item.setProductId(productId == null ? null : productId.longValue());
+        item.setProductId(productId);
         item.setNumber(number);
         return item;
     }

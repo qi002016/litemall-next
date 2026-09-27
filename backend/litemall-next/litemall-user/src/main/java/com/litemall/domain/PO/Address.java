@@ -25,7 +25,7 @@ public class Address implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @TableId(value = "id", type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     /**
      * 收货人名称
@@ -37,7 +37,7 @@ public class Address implements Serializable {
      * 用户表的用户ID
      */
     @TableField("user_id")
-    private Integer userId;
+    private Long userId;
 
     /**
      * 行政区域表的省ID

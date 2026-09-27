@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class StockDeductBatchTest {
 
     /** 哨兵商品ID，避免与真实商品数据关联（该表无外键约束） */
-    private static final int TEST_GOODS_ID = 999999;
+    private static final long TEST_GOODS_ID = 999999;
 
     @Autowired
     private GoodsInnerController goodsInnerController;
@@ -86,9 +86,9 @@ class StockDeductBatchTest {
         return product;
     }
 
-    private StockChangeDTO.Item item(Integer productId, int number) {
+    private StockChangeDTO.Item item(Long productId, int number) {
         StockChangeDTO.Item item = new StockChangeDTO.Item();
-        item.setProductId(productId.longValue());
+        item.setProductId(productId);
         item.setNumber(number);
         return item;
     }

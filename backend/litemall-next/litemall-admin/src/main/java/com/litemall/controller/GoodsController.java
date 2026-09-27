@@ -56,7 +56,7 @@ public class GoodsController {
     @PutMapping("/update")
     public Result<Void> update(@RequestBody Map<String, Object> body) {
         GoodsAdminDTO dto = new GoodsAdminDTO();
-        dto.setId(asInteger(body.get("id")));
+        dto.setId(asLong(body.get("id")));
         dto.setName(asString(body.get("name")));
         dto.setBrief(asString(body.get("brief")));
         dto.setPicUrl(asString(body.get("picUrl")));
@@ -67,7 +67,7 @@ public class GoodsController {
     }
 
     @DeleteMapping("/delete")
-    public Result<Void> delete(@RequestParam Integer id) {
+    public Result<Void> delete(@RequestParam Long id) {
         goodsClient.adminDeleteGoods(id);
         return Result.ok();
     }
@@ -76,14 +76,15 @@ public class GoodsController {
         return value == null ? null : value.toString();
     }
 
-    private Integer asInteger(Object value) {
+    /** 请求体中的商品ID：JSON 整数字面量既可能是 Integer 也可能是 Long，统一按 64 位解析 */
+    private Long asLong(Object value) {
         if (value == null) {
             return null;
         }
         if (value instanceof Number number) {
-            return number.intValue();
+            return number.longValue();
         }
-        return Integer.valueOf(value.toString());
+        return Long.valueOf(value.toString());
     }
 
     private Boolean asBoolean(Object value) {

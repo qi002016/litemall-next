@@ -30,16 +30,16 @@ public class Aftersale implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @TableId(value = "id", type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     @Schema(description = "售后编号")
     private String aftersaleSn;
 
     @Schema(description = "订单ID")
-    private Integer orderId;
+    private Long orderId;
 
     @Schema(description = "用户ID")
-    private Integer userId;
+    private Long userId;
 
     @Schema(description = "售后类型：0 未收货退款；1 已收货(无需退货)退款；2 用户退货退款")
     private Integer type;

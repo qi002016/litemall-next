@@ -43,7 +43,7 @@ public class MessageServiceImpl extends ServiceImpl<UserMessageMapper, UserMessa
         int ps = pageSize == null || pageSize < 1 || pageSize > 100 ? 10 : pageSize;
         Page<UserMessage> page = new Page<>(pn, ps);
         Page<UserMessage> messagePage = lambdaQuery()
-                .eq(UserMessage::getUserId, userId.intValue())
+                .eq(UserMessage::getUserId, userId)
                 .eq(UserMessage::getDeleted, false)
                 .eq(StrUtil.isNotBlank(type), UserMessage::getType, type)
                 .orderByDesc(UserMessage::getAddTime)
@@ -51,8 +51,8 @@ public class MessageServiceImpl extends ServiceImpl<UserMessageMapper, UserMessa
 
         List<MessageVO> voList = messagePage.getRecords().stream().map(m -> {
             MessageVO vo = new MessageVO();
-            vo.setId(m.getId().longValue());
-            vo.setMsgId(m.getMsgId() == null ? 0L : m.getMsgId().longValue());
+            vo.setId(m.getId());
+            vo.setMsgId(m.getMsgId() == null ? 0L : m.getMsgId());
             vo.setType(m.getType());
             vo.setTitle(m.getTitle());
             vo.setBrief(StrUtil.isBlank(m.getContent()) ? ""
@@ -68,7 +68,7 @@ public class MessageServiceImpl extends ServiceImpl<UserMessageMapper, UserMessa
     public MessageDetailVO getMessageDetail(Long id) {
         UserMessage message = requireOwnMessage(id);
         MessageDetailVO vo = new MessageDetailVO();
-        vo.setId(message.getId().longValue());
+        vo.setId(message.getId());
         vo.setType(message.getType());
         vo.setTitle(message.getTitle());
         vo.setContent(message.getContent());
@@ -96,8 +96,8 @@ public class MessageServiceImpl extends ServiceImpl<UserMessageMapper, UserMessa
         }
         LocalDateTime now = LocalDateTime.now();
         UserMessage message = new UserMessage()
-                .setUserId(userId.intValue())
-                .setMsgId(0)
+                .setUserId(userId)
+                .setMsgId(0L)
                 .setType(StrUtil.isBlank(type) ? "system" : type)
                 .setTitle(title == null ? "" : title)
                 .setContent(content == null ? "" : content)
@@ -116,11 +116,11 @@ public class MessageServiceImpl extends ServiceImpl<UserMessageMapper, UserMessa
             throw new BadRequestException("消息ID不能为空");
         }
         Long userId = UserContext.getUser();
-        UserMessage message = getById(id.intValue());
+        UserMessage message = getById(id);
         if (message == null || Boolean.TRUE.equals(message.getDeleted())) {
             throw new BadRequestException("消息不存在");
         }
-        if (userId != null && !userId.equals(message.getUserId().longValue())) {
+        if (userId != null && !userId.equals(message.getUserId())) {
             throw new ForbiddenException("无权操作该消息");
         }
         return message;

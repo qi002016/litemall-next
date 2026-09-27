@@ -23,7 +23,7 @@ import java.time.LocalDateTime;
 public class CouponDTO {
 
     @Schema(description = "优惠券ID")
-    private Integer id;
+    private Long id;
 
     @Schema(description = "优惠券名称")
     private String name;

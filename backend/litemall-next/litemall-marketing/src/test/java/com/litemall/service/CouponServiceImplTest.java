@@ -257,7 +257,7 @@ class CouponServiceImplTest {
     /** 券默认形态：正常在用、用户可领、有限库存、按领取时间 days 天生效 */
     private Coupon coupon(int total) {
         return new Coupon()
-                .setId((int) COUPON_ID)
+                .setId(COUPON_ID)
                 .setName("测试券")
                 .setTotal(total)
                 .setLimit(1)

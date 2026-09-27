@@ -88,7 +88,7 @@ public class MarketingInnerController {
 
     @Operation(summary = "管理端新建优惠券")
     @PostMapping("/admin/coupon/create")
-    public Integer adminCreateCoupon(@RequestBody CouponDTO dto) {
+    public Long adminCreateCoupon(@RequestBody CouponDTO dto) {
         if (dto == null || !StringUtils.hasText(dto.getName())) {
             throw new BadRequestException("优惠券名称不能为空");
         }
@@ -146,7 +146,7 @@ public class MarketingInnerController {
 
     @Operation(summary = "管理端删除优惠券（逻辑删除）")
     @DeleteMapping("/admin/coupon/delete")
-    public void adminDeleteCoupon(@RequestParam("id") Integer id) {
+    public void adminDeleteCoupon(@RequestParam("id") Long id) {
         Coupon coupon = couponService.getById(requireId(id, "优惠券"));
         if (coupon == null || Boolean.TRUE.equals(coupon.getDeleted())) {
             throw new BadRequestException("优惠券不存在");
@@ -175,7 +175,7 @@ public class MarketingInnerController {
 
     @Operation(summary = "管理端新建广告")
     @PostMapping("/admin/ad/create")
-    public Integer adminCreateAd(@RequestBody AdDTO dto) {
+    public Long adminCreateAd(@RequestBody AdDTO dto) {
         if (dto == null || !StringUtils.hasText(dto.getName())) {
             throw new BadRequestException("广告名称不能为空");
         }
@@ -216,7 +216,7 @@ public class MarketingInnerController {
 
     @Operation(summary = "管理端删除广告（逻辑删除）")
     @DeleteMapping("/admin/ad/delete")
-    public void adminDeleteAd(@RequestParam("id") Integer id) {
+    public void adminDeleteAd(@RequestParam("id") Long id) {
         Ad ad = adService.getById(requireId(id, "广告"));
         if (ad == null || Boolean.TRUE.equals(ad.getDeleted())) {
             throw new BadRequestException("广告不存在");
@@ -245,7 +245,7 @@ public class MarketingInnerController {
 
     @Operation(summary = "管理端新建专题")
     @PostMapping("/admin/topic/create")
-    public Integer adminCreateTopic(@RequestBody TopicDTO dto) {
+    public Long adminCreateTopic(@RequestBody TopicDTO dto) {
         if (dto == null || !StringUtils.hasText(dto.getTitle())) {
             throw new BadRequestException("专题标题不能为空");
         }
@@ -284,7 +284,7 @@ public class MarketingInnerController {
 
     @Operation(summary = "管理端删除专题（逻辑删除）")
     @DeleteMapping("/admin/topic/delete")
-    public void adminDeleteTopic(@RequestParam("id") Integer id) {
+    public void adminDeleteTopic(@RequestParam("id") Long id) {
         Topic topic = topicService.getById(requireId(id, "专题"));
         if (topic == null || Boolean.TRUE.equals(topic.getDeleted())) {
             throw new BadRequestException("专题不存在");
@@ -306,7 +306,7 @@ public class MarketingInnerController {
         return pageSize == null || pageSize < 1 || pageSize > 100 ? 10 : pageSize;
     }
 
-    private Integer requireId(Integer id, String label) {
+    private Long requireId(Long id, String label) {
         if (id == null) {
             throw new BadRequestException(label + "ID不能为空");
         }

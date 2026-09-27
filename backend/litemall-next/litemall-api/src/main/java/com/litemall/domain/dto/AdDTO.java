@@ -18,7 +18,7 @@ import java.time.LocalDateTime;
 public class AdDTO {
 
     @Schema(description = "广告ID")
-    private Integer id;
+    private Long id;
 
     @Schema(description = "广告标题")
     private String name;

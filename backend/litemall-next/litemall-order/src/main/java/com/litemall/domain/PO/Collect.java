@@ -29,16 +29,16 @@ public class Collect implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @TableId(value = "id", type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     @Schema(description = "用户ID")
-    private Integer userId;
+    private Long userId;
 
     /**
      * 如果 type=0，则是商品ID；如果 type=1，则是专题ID
      */
     @Schema(description = "收藏对象ID：type=0 商品ID；type=1 专题ID")
-    private Integer valueId;
+    private Long valueId;
 
     @Schema(description = "收藏类型：0 商品；1 专题")
     private Integer type;

@@ -29,13 +29,13 @@ public class Footprint implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @TableId(value = "id", type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     @Schema(description = "用户ID")
-    private Integer userId;
+    private Long userId;
 
     @Schema(description = "浏览商品ID")
-    private Integer goodsId;
+    private Long goodsId;
 
     @Schema(description = "创建时间")
     private LocalDateTime addTime;

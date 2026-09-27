@@ -57,7 +57,7 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         }
         // 2.通过Feign客户端跨服务批量查询评论用户信息(昵称/头像)
         Set<Long> userIds = comments.stream()
-                .map(c -> c.getUserId().longValue())
+                .map(c -> c.getUserId())
                 .collect(Collectors.toSet());
         List<UserInfoDTO> userInfos = userClient.listUserByIds(List.copyOf(userIds));
         Map<Long, UserInfoDTO> userMap = userInfos == null ? Map.of()
@@ -70,7 +70,7 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
             if (StringUtils.hasText(c.getPicUrls())) {
                 vo.setPicUrls(JSONUtil.toList(c.getPicUrls(), String.class).toArray(new String[0]));
             }
-            UserInfoDTO user = userMap.get(c.getUserId().longValue());
+            UserInfoDTO user = userMap.get(c.getUserId());
             if (user != null) {
                 vo.setNickname(user.getNickname());
                 vo.setAvatar(user.getAvatar());
@@ -87,11 +87,11 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
             throw new BadRequestException("请先登录");
         }
         Comment comment = new Comment();
-        comment.setValueId(dto.getGoodsId().intValue());
+        comment.setValueId(dto.getGoodsId());
         comment.setType(0);
         comment.setContent(dto.getContent());
         comment.setStar(dto.getStar());
-        comment.setUserId(userId.intValue());
+        comment.setUserId(userId);
         List<String> picUrls = dto.getPicUrls();
         boolean hasPicture = picUrls != null && !picUrls.isEmpty();
         comment.setHasPicture(hasPicture);

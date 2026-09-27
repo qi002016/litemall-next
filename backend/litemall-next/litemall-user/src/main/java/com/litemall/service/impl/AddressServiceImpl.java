@@ -36,7 +36,7 @@ public class AddressServiceImpl extends ServiceImpl<AddressMapper, Address> impl
         Long userId = UserContext.getUser();
         Address address = new Address();
         BeanUtils.copyProperties(addressDTO, address);
-        address.setUserId(userId.intValue());
+        address.setUserId(userId);
         address.setDeleted(false);
         address.setAddTime(LocalDateTime.now());
         address.setUpdateTime(LocalDateTime.now());
@@ -85,7 +85,7 @@ public class AddressServiceImpl extends ServiceImpl<AddressMapper, Address> impl
             return null;
         }
         AddressInfoDTO dto = new AddressInfoDTO();
-        dto.setId(address.getId().longValue());
+        dto.setId(address.getId());
         dto.setName(address.getName());
         dto.setMobile(address.getTel());
         dto.setProvince(address.getProvince());

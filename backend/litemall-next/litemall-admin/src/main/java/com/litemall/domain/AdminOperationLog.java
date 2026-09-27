@@ -27,7 +27,7 @@ public class AdminOperationLog implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @TableId(value = "id", type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     /** 操作人账号名 */
     private String admin;

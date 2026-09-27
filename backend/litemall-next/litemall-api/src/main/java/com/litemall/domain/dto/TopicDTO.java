@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
 public class TopicDTO {
 
     @Schema(description = "专题ID")
-    private Integer id;
+    private Long id;
 
     @Schema(description = "专题标题")
     private String title;

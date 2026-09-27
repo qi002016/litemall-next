@@ -225,7 +225,7 @@ class PayServiceImplTest {
         java.util.concurrent.atomic.AtomicReference<Refund> captured = new java.util.concurrent.atomic.AtomicReference<>();
         doAnswer(inv -> {
             Refund r = inv.getArgument(0);
-            r.setId(88);
+            r.setId(88L);
             captured.set(r);
             return 1;
         }).when(refundMapper).insert(any(Refund.class));
@@ -236,8 +236,8 @@ class PayServiceImplTest {
         assertEquals(88L, vo.getRefundId());
         assertEquals("processing", vo.getStatus());
         verify(refundMapper).insert(any(Refund.class));
-        assertEquals(800, captured.get().getOrderId());
-        assertEquals(1, captured.get().getUserId());
+        assertEquals(800L, captured.get().getOrderId());
+        assertEquals(1L, captured.get().getUserId());
         assertEquals(0, captured.get().getStatus());
         verify(orderClient).markRefunded(800L, new BigDecimal("99.00"));
     }

@@ -28,10 +28,10 @@ public class Comment implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @TableId(value = "id", type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     @Schema(description = "评论的商品或专题ID")
-    private Integer valueId;
+    private Long valueId;
 
     @Schema(description = "评论类型，如果type=0，则是商品评论；如果是type=1，则是专题评论；")
     private Integer type;
@@ -43,7 +43,7 @@ public class Comment implements Serializable {
     private String adminContent;
 
     @Schema(description = "用户表的用户ID")
-    private Integer userId;
+    private Long userId;
 
     @Schema(description = "是否含有图片")
     private Boolean hasPicture;

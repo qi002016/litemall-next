@@ -31,13 +31,13 @@ public class Cart implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @TableId(value = "id", type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     @Schema(description = "用户ID")
-    private Integer userId;
+    private Long userId;
 
     @Schema(description = "商品ID")
-    private Integer goodsId;
+    private Long goodsId;
 
     @Schema(description = "商品编号")
     private String goodsSn;
@@ -46,7 +46,7 @@ public class Cart implements Serializable {
     private String goodsName;
 
     @Schema(description = "商品货品ID（规格）")
-    private Integer productId;
+    private Long productId;
 
     @Schema(description = "单价")
     private BigDecimal price;
