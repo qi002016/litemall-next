@@ -3,8 +3,11 @@ package com.litemall.controller;
 import com.litemall.client.GoodsClient;
 import com.litemall.client.OrderClient;
 import com.litemall.client.UserClient;
+import com.litemall.domain.DTO.OrderRefundReqDTO;
+import com.litemall.domain.DTO.OrderShipReqDTO;
 import com.litemall.domain.PageVO;
 import com.litemall.domain.Result;
+import com.litemall.domain.VO.DashboardStatsVO;
 import com.litemall.domain.dto.OrderAdminDTO;
 import com.litemall.domain.dto.OrderAdminStatsDTO;
 import com.litemall.domain.dto.OrderRefundDTO;
@@ -19,9 +22,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -77,10 +78,10 @@ class AdminOrderFeignTest {
     @Test
     @DisplayName("H5：/admin/order/ship 转发为 OrderShipDTO（含快递信息）")
     void shipDelegatesToOrderClient() {
-        Map<String, Object> body = new HashMap<>();
-        body.put("orderId", 12);
-        body.put("shipChannel", "SF");
-        body.put("shipSn", "SF999");
+        OrderShipReqDTO body = new OrderShipReqDTO();
+        body.setOrderId(12L);
+        body.setShipChannel("SF");
+        body.setShipSn("SF999");
 
         orderController.ship(body);
 
@@ -94,10 +95,10 @@ class AdminOrderFeignTest {
     @Test
     @DisplayName("H5：/admin/order/refund 转发为 OrderRefundDTO（含退款金额与备注）")
     void refundDelegatesToOrderClient() {
-        Map<String, Object> body = new HashMap<>();
-        body.put("orderId", 13);
-        body.put("refundAmount", "66.60");
-        body.put("refundContent", "协商退款");
+        OrderRefundReqDTO body = new OrderRefundReqDTO();
+        body.setOrderId(13L);
+        body.setRefundAmount(new BigDecimal("66.60"));
+        body.setRefundContent("协商退款");
 
         orderController.refund(body);
 
@@ -111,8 +112,8 @@ class AdminOrderFeignTest {
     @Test
     @DisplayName("H5：/admin/order/refund 仅传 orderId 时金额留空，由 order 服务兜底")
     void refundWithoutAmount_keepsAmountNull() {
-        Map<String, Object> body = new HashMap<>();
-        body.put("orderId", 14);
+        OrderRefundReqDTO body = new OrderRefundReqDTO();
+        body.setOrderId(14L);
 
         orderController.refund(body);
 
@@ -132,13 +133,12 @@ class AdminOrderFeignTest {
         when(userClient.adminCountUsers()).thenReturn(30L);
 
         DashboardController dashboard = new DashboardController(goodsClient, orderClient, userClient);
-        Result<Map<String, Object>> result = dashboard.stats();
+        Result<DashboardStatsVO> result = dashboard.stats();
 
-        assertThat(result.getData())
-                .containsEntry("goodsTotal", 20L)
-                .containsEntry("userTotal", 30L)
-                .containsEntry("todayOrders", 5L)
-                .containsEntry("undelivered", 3L);
+        assertThat(result.getData().getGoodsTotal()).isEqualTo(20L);
+        assertThat(result.getData().getUserTotal()).isEqualTo(30L);
+        assertThat(result.getData().getTodayOrders()).isEqualTo(5L);
+        assertThat(result.getData().getUndelivered()).isEqualTo(3L);
     }
 
     private OrderAdminStatsDTO stats(Long todayOrders, Long undelivered) {

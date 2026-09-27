@@ -4,14 +4,12 @@ import com.litemall.client.GoodsClient;
 import com.litemall.client.OrderClient;
 import com.litemall.client.UserClient;
 import com.litemall.domain.Result;
+import com.litemall.domain.VO.DashboardStatsVO;
 import com.litemall.domain.dto.OrderAdminStatsDTO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * <p>
@@ -33,13 +31,13 @@ public class DashboardController {
     private final UserClient userClient;
 
     @GetMapping("/stats")
-    public Result<Map<String, Object>> stats() {
+    public Result<DashboardStatsVO> stats() {
         OrderAdminStatsDTO orderStats = orderClient.adminOrderStats();
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("goodsTotal", goodsClient.adminCountGoods());
-        stats.put("userTotal", userClient.adminCountUsers());
-        stats.put("todayOrders", orderStats == null ? 0L : orderStats.getTodayOrders());
-        stats.put("undelivered", orderStats == null ? 0L : orderStats.getUndelivered());
+        DashboardStatsVO stats = new DashboardStatsVO();
+        stats.setGoodsTotal(goodsClient.adminCountGoods());
+        stats.setUserTotal(userClient.adminCountUsers());
+        stats.setTodayOrders(orderStats == null ? 0L : orderStats.getTodayOrders());
+        stats.setUndelivered(orderStats == null ? 0L : orderStats.getUndelivered());
         return Result.ok(stats);
     }
 }

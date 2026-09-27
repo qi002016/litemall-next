@@ -1,11 +1,14 @@
 package com.litemall.controller;
 
 import com.litemall.client.OrderClient;
+import com.litemall.domain.DTO.OrderRefundReqDTO;
+import com.litemall.domain.DTO.OrderShipReqDTO;
 import com.litemall.domain.PageVO;
 import com.litemall.domain.Result;
 import com.litemall.domain.dto.OrderAdminDTO;
 import com.litemall.domain.dto.OrderRefundDTO;
 import com.litemall.domain.dto.OrderShipDTO;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -13,9 +16,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.math.BigDecimal;
-import java.util.Map;
 
 /**
  * <p>
@@ -44,43 +44,22 @@ public class OrderController {
     }
 
     @PostMapping("/ship")
-    public Result<Void> ship(@RequestBody Map<String, Object> body) {
+    public Result<Void> ship(@Valid @RequestBody OrderShipReqDTO body) {
         OrderShipDTO dto = new OrderShipDTO();
-        dto.setOrderId(toLong(body.get("orderId")));
-        dto.setShipChannel(toStr(body.get("shipChannel")));
-        dto.setShipSn(toStr(body.get("shipSn")));
+        dto.setOrderId(body.getOrderId());
+        dto.setShipChannel(body.getShipChannel());
+        dto.setShipSn(body.getShipSn());
         orderClient.adminShip(dto);
         return Result.ok();
     }
 
     @PostMapping("/refund")
-    public Result<Void> refund(@RequestBody Map<String, Object> body) {
+    public Result<Void> refund(@Valid @RequestBody OrderRefundReqDTO body) {
         OrderRefundDTO dto = new OrderRefundDTO();
-        dto.setOrderId(toLong(body.get("orderId")));
-        dto.setRefundAmount(toDecimal(body.get("refundAmount")));
-        dto.setRefundContent(toStr(body.get("refundContent")));
+        dto.setOrderId(body.getOrderId());
+        dto.setRefundAmount(body.getRefundAmount());
+        dto.setRefundContent(body.getRefundContent());
         orderClient.adminRefund(dto);
         return Result.ok();
-    }
-
-    private Long toLong(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number number) {
-            return number.longValue();
-        }
-        return Long.valueOf(value.toString());
-    }
-
-    private String toStr(Object value) {
-        return value == null ? null : value.toString();
-    }
-
-    private BigDecimal toDecimal(Object value) {
-        if (value == null || value.toString().isBlank()) {
-            return null;
-        }
-        return new BigDecimal(value.toString());
     }
 }

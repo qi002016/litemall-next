@@ -1,9 +1,12 @@
 package com.litemall.controller;
 
 import com.litemall.client.GoodsClient;
+import com.litemall.domain.DTO.GoodsCreateDTO;
+import com.litemall.domain.DTO.GoodsUpdateDTO;
 import com.litemall.domain.PageVO;
 import com.litemall.domain.Result;
 import com.litemall.domain.dto.GoodsAdminDTO;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,9 +16,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.math.BigDecimal;
-import java.util.Map;
 
 /**
  * <p>
@@ -43,25 +43,25 @@ public class GoodsController {
     }
 
     @PostMapping("/create")
-    public Result<Void> create(@RequestBody Map<String, Object> body) {
+    public Result<Void> create(@Valid @RequestBody GoodsCreateDTO body) {
         GoodsAdminDTO dto = new GoodsAdminDTO();
-        dto.setName(asString(body.get("name")));
-        dto.setBrief(asString(body.get("brief")));
-        dto.setPicUrl(asString(body.get("picUrl")));
-        dto.setMinPrice(toBD(body.get("minPrice")));
+        dto.setName(body.getName());
+        dto.setBrief(body.getBrief());
+        dto.setPicUrl(body.getPicUrl());
+        dto.setMinPrice(body.getMinPrice());
         goodsClient.adminCreateGoods(dto);
         return Result.ok();
     }
 
     @PutMapping("/update")
-    public Result<Void> update(@RequestBody Map<String, Object> body) {
+    public Result<Void> update(@Valid @RequestBody GoodsUpdateDTO body) {
         GoodsAdminDTO dto = new GoodsAdminDTO();
-        dto.setId(asLong(body.get("id")));
-        dto.setName(asString(body.get("name")));
-        dto.setBrief(asString(body.get("brief")));
-        dto.setPicUrl(asString(body.get("picUrl")));
-        dto.setMinPrice(toBD(body.get("minPrice")));
-        dto.setOnSale(asBoolean(body.get("onSale")));
+        dto.setId(body.getId());
+        dto.setName(body.getName());
+        dto.setBrief(body.getBrief());
+        dto.setPicUrl(body.getPicUrl());
+        dto.setMinPrice(body.getMinPrice());
+        dto.setOnSale(body.getOnSale());
         goodsClient.adminUpdateGoods(dto);
         return Result.ok();
     }
@@ -70,37 +70,5 @@ public class GoodsController {
     public Result<Void> delete(@RequestParam Long id) {
         goodsClient.adminDeleteGoods(id);
         return Result.ok();
-    }
-
-    private String asString(Object value) {
-        return value == null ? null : value.toString();
-    }
-
-    /** 请求体中的商品ID：JSON 整数字面量既可能是 Integer 也可能是 Long，统一按 64 位解析 */
-    private Long asLong(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number number) {
-            return number.longValue();
-        }
-        return Long.valueOf(value.toString());
-    }
-
-    private Boolean asBoolean(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Boolean bool) {
-            return bool;
-        }
-        return Boolean.valueOf(value.toString());
-    }
-
-    private BigDecimal toBD(Object value) {
-        if (value == null || value.toString().isBlank()) {
-            return null;
-        }
-        return new BigDecimal(value.toString());
     }
 }

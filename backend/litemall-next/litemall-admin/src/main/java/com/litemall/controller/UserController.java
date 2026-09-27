@@ -1,10 +1,12 @@
 package com.litemall.controller;
 
 import com.litemall.client.UserClient;
+import com.litemall.domain.DTO.UserStatusReqDTO;
 import com.litemall.domain.PageVO;
 import com.litemall.domain.Result;
 import com.litemall.domain.dto.UserAdminDTO;
 import com.litemall.domain.dto.UserStatusDTO;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -12,8 +14,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.Map;
 
 /**
  * <p>
@@ -41,32 +41,11 @@ public class UserController {
     }
 
     @PostMapping("/status")
-    public Result<Void> status(@RequestBody Map<String, Object> body) {
+    public Result<Void> status(@Valid @RequestBody UserStatusReqDTO body) {
         UserStatusDTO dto = new UserStatusDTO();
-        dto.setId(asLong(body.get("id")));
-        dto.setStatus(asInteger(body.get("status")));
+        dto.setId(body.getId());
+        dto.setStatus(body.getStatus());
         userClient.adminUpdateUserStatus(dto);
         return Result.ok();
-    }
-
-    /** 请求体中的用户ID：JSON 整数字面量既可能是 Integer 也可能是 Long，统一按 64 位解析 */
-    private Long asLong(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number number) {
-            return number.longValue();
-        }
-        return Long.valueOf(value.toString());
-    }
-
-    private Integer asInteger(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
-        return Integer.valueOf(value.toString());
     }
 }
