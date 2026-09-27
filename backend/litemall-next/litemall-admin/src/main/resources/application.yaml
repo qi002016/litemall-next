@@ -44,6 +44,29 @@ mybatis-plus:
       update-strategy: not_null
       id-type: auto
 
+# 补齐与其余 8 个服务一致的 Seata 客户端配置（此前本模块缺失该项，导致启动即失败：
+# Seata 由 litemall-common 胖 starter 带入，缺配置时 registry 退回 file，
+# FileRegistryServiceImpl 找不到 service.vgroupMapping.default_tx_group 而抛 ConfigNotFoundException）。
+# 注：admin 自身没有 @GlobalTransactional（全仓仅 order 的 3 处）；
+#     启用后 admin 的启动会依赖 Seata/Nacos 可用性——若希望 admin 与 Seata 解耦，可将 enabled 置 false。
+seata:
+  enabled: true
+  application-id: ${spring.application.name}
+  tx-service-group: default_tx_group
+  registry:
+    type: nacos
+    nacos:
+      application: seata-server
+      server-addr: ${HM_SEATA_ADDR:192.168.96.129:8848}
+      group: SEATA_GROUP
+      namespace: ""
+      cluster: default
+      username: ""
+      password: ""
+  service:
+    vgroup-mapping:
+      default_tx_group: default
+
 hm:
   # H4：密钥库口令不再随源码提交，必须由环境变量注入；缺失时启动失败(fail-fast)
   jwt:
