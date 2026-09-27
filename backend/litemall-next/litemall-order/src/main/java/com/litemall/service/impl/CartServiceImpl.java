@@ -13,6 +13,7 @@ import com.litemall.domain.VO.CartItemVO;
 import com.litemall.domain.VO.OrderConfirmVO;
 import com.litemall.domain.dto.CouponCheckDTO;
 import com.litemall.domain.dto.GoodsProductInfoDTO;
+import com.litemall.exception.BadRequestException;
 import com.litemall.mapper.CartMapper;
 import com.litemall.service.ICartService;
 import com.litemall.utils.UserContext;
@@ -22,8 +23,10 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -32,6 +35,9 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
 
     private final GoodsClient goodsClient;
     private final MarketingClient marketingClient;
+
+    /** M14：单行购物车数量上限。加购是累加语义，故上限要在"累加后"判定 */
+    private static final int MAX_ITEM_NUMBER = 999;
 
     @Override
     public List<CartItemVO> listCart() {
@@ -49,11 +55,17 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
         Long userId = UserContext.getUser();
         Long goodsId = dto.getGoodsId();
 
+        // M14：数量下界在服务层兜底（控制器校验可能被内部调用或后续新增入口绕过）
+        int addNumber = dto.getNumber() == null ? 0 : dto.getNumber();
+        if (addNumber < 1) {
+            throw new BadRequestException("加购数量必须大于 0");
+        }
+
         // 通过 Feign 查询商品货品信息（价格/规格/图/名）
         // 前端未选规格时 specId 传 0，取该商品默认货品
         GoodsProductInfoDTO product = resolveProduct(dto.getGoodsId(), dto.getSpecId());
         if (product == null) {
-            throw new RuntimeException("商品规格不存在");
+            throw new BadRequestException("商品规格不存在");
         }
         Long productId = product.getId();
 
@@ -66,16 +78,24 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
 
         int total;
         if (exist != null) {
-            exist.setNumber(exist.getNumber() + dto.getNumber());
+            int current = exist.getNumber() == null ? 0 : exist.getNumber();
+            // M14：在"累加后"判定上限，避免少量多次绕过
+            if (current + addNumber > MAX_ITEM_NUMBER) {
+                throw new BadRequestException("该商品最多加购 " + MAX_ITEM_NUMBER + " 件，当前已有 " + current + " 件");
+            }
+            exist.setNumber(current + addNumber);
             exist.setUpdateTime(LocalDateTime.now());
             updateById(exist);
             total = exist.getNumber();
         } else {
+            if (addNumber > MAX_ITEM_NUMBER) {
+                throw new BadRequestException("该商品最多加购 " + MAX_ITEM_NUMBER + " 件");
+            }
             Cart cart = new Cart();
             cart.setUserId(userId);
             cart.setGoodsId(goodsId);
             cart.setProductId(productId);
-            cart.setNumber(dto.getNumber());
+            cart.setNumber(addNumber);
             cart.setChecked(true);
             cart.setPrice(product.getPrice());
             cart.setSpecifications(product.getSpecifications());
@@ -85,7 +105,7 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
             cart.setAddTime(LocalDateTime.now());
             cart.setUpdateTime(LocalDateTime.now());
             save(cart);
-            total = dto.getNumber();
+            total = addNumber;
             exist = cart;
         }
 
@@ -99,6 +119,9 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
     @Override
     public CartItemVO updateCart(CartUpdateDTO dto) {
         Long userId = UserContext.getUser();
+        if (dto.getGoodsId() == null) {
+            throw new BadRequestException("商品ID不能为空");
+        }
         Long productId = resolveProductId(dto.getGoodsId(), dto.getSpecId());
         Cart cart = lambdaQuery()
                 .eq(Cart::getUserId, userId)
@@ -107,9 +130,13 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
                 .eq(Cart::getDeleted, false)
                 .one();
         if (cart == null) {
-            throw new RuntimeException("购物车项不存在");
+            // 查询按 userId 过滤，故查不到既可能是"不存在"也可能是"不属于当前用户"
+            throw new BadRequestException("购物车项不存在或不属于当前用户");
         }
         if (dto.getNumber() != null) {
+            if (dto.getNumber() < 1 || dto.getNumber() > MAX_ITEM_NUMBER) {
+                throw new BadRequestException("购物车数量必须在 1 ~ " + MAX_ITEM_NUMBER + " 之间");
+            }
             cart.setNumber(dto.getNumber());
         }
         if (dto.getChecked() != null) {
@@ -140,10 +167,26 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
     @Override
     public OrderConfirmVO confirmOrder(OrderConfirmDTO dto) {
         Long userId = UserContext.getUser();
-        List<Cart> carts = listByIds(dto.getCartIds());
+        List<Long> requestedIds = dto.getCartIds();
+        if (requestedIds == null || requestedIds.isEmpty()) {
+            throw new BadRequestException("请选择要结算的购物车项");
+        }
+        List<Cart> carts = listByIds(requestedIds);
+        // M14 归属完整性校验：请求的每一项都必须存在、属于当前用户且未删除。
+        // 原实现是"先把请求的 ID 全量取回，再在内存里过滤掉别人的项"——这会让用户
+        // 看到与自己勾选不一致的金额（被过滤的行悄悄不参与计算），而不是明确报错。
+        Set<Long> requested = new HashSet<>(requestedIds);
+        if (carts.size() != requested.size()
+                || carts.stream().anyMatch(c -> !userId.equals(c.getUserId()) || Boolean.TRUE.equals(c.getDeleted()))) {
+            throw new BadRequestException("购物车项不存在或不属于当前用户");
+        }
+
         BigDecimal goodsAmount = carts.stream()
-                .filter(c -> c.getUserId().equals(userId) && !Boolean.TRUE.equals(c.getDeleted()))
-                .map(c -> c.getPrice().multiply(BigDecimal.valueOf(c.getNumber())))
+                .map(c -> {
+                    BigDecimal price = c.getPrice() == null ? BigDecimal.ZERO : c.getPrice();
+                    int number = c.getNumber() == null ? 0 : c.getNumber();
+                    return price.multiply(BigDecimal.valueOf(number));
+                })
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         BigDecimal freight = BigDecimal.ZERO;
@@ -152,11 +195,23 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
         check.setCouponUserId(dto.getCouponId());
         check.setGoodsAmount(goodsAmount);
         BigDecimal coupon = marketingClient.checkCoupon(check);
+        // M14 金额钳制：券额可能为 null / 负 / 超过商品金额；订单金额不得为负
+        if (coupon == null || coupon.signum() < 0) {
+            coupon = BigDecimal.ZERO;
+        }
+        if (coupon.compareTo(goodsAmount) > 0) {
+            coupon = goodsAmount;
+        }
+        BigDecimal orderAmount = goodsAmount.add(freight).subtract(coupon);
+        if (orderAmount.signum() < 0) {
+            orderAmount = BigDecimal.ZERO;
+        }
+
         OrderConfirmVO vo = new OrderConfirmVO();
         vo.setGoodsAmount(goodsAmount);
         vo.setFreightAmount(freight);
         vo.setCouponAmount(coupon);
-        vo.setOrderAmount(goodsAmount.add(freight).subtract(coupon));
+        vo.setOrderAmount(orderAmount);
         return vo;
     }
 
