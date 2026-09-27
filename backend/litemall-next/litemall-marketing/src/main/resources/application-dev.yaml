@@ -5,3 +5,15 @@ hm:
   redis:
     host: localhost
     port: 6379
+
+# 注册 IP 必须与 server.address 保持一致（H3 配套）：
+# dev 默认只绑回环（HM_SERVER_BIND=127.0.0.1），若让 Spring 自动探测注册 IP，会取主机第一块
+# 非回环网卡（本机为 VMware VMnet8 的 192.168.96.1），网关照 Nacos 里的地址转发必然
+# Connection refused → 500。此处把 dev 的注册 IP 定为回环，与默认绑定地址一致。
+# 容器/多机：置空 HM_DISCOVERY_IP 即回退为自动探测（docker-compose.yml 已如此设置），
+# 或显式给出网关可达的 IP。
+spring:
+  cloud:
+    nacos:
+      discovery:
+        ip: ${HM_DISCOVERY_IP:127.0.0.1}

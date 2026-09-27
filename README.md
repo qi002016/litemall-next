@@ -64,6 +64,12 @@ Spring Cloud 微服务商城（教学/参考实现）。后端 12 个 Maven 模�
 | Sentinel dashboard | 8090 | 配置残留，**当前所有服务 `sentinel.enabled=false`** | 可选 |
 
 > 8001–8008 默认绑定 `127.0.0.1`（`HM_SERVER_BIND`），容器内跨主机部署时需显式改为 `0.0.0.0` 并置于内网。
+>
+> **注册 IP 必须与绑定地址一致**（NF-6）：dev 默认只绑回环，若让 Spring 自动探测注册 IP，登记进 Nacos 的
+> 会是主机**第一块非回环网卡**的地址（本机是 VMware VMnet8 的 `192.168.96.1`），而该地址上并没有
+> 监听的进程 → 网关按 Nacos 里的地址转发必然 `Connection refused` → 对外表现为 500。
+> 因此 9 个可运行模块的 dev profile 默认 `HM_DISCOVERY_IP=127.0.0.1`；容器/多机部署置空该变量
+> 即回退为自动探测（`docker/docker-compose.yml` 已如此设置）。
 
 ## 3. 路由与鉴权（网关）
 
@@ -95,6 +101,7 @@ Feign 出站由 `litemall-api` 的 `FeignInnerConfig` 自动附加。
 | `HM_JKS_LOCATION` / `HM_JKS_ALIAS` | 可选 | `classpath:litemall.jks` / `hmall` | 密钥库位置与别名 |
 | `HM_INTERNAL_TOKEN` | **非 dev 必需**(全部服务一致) | 空 | `/inner/**` 共享密钥；非 dev 为空则启动失败（H3） |
 | `HM_SERVER_BIND` | 按需 | `127.0.0.1` | 容器/对外部署设 `0.0.0.0` |
+| `HM_DISCOVERY_IP` | 按需 | dev `127.0.0.1` | **注册到 Nacos 的 IP**（NF-6）。默认与 `HM_SERVER_BIND` 一致，避免"注册地址 ≠ 监听地址"导致网关 500；容器/多机把它置为**空字符串**即回退自动探测 |
 | `HM_NACOS_ADDR` | 按需 | `192.168.96.129:8848` | Nacos 地址（配置 + 注册）。**默认值是本项目 dev 环境实测可达的中间件，不是回环地址**；换环境请整体覆盖 |
 | `HM_SEATA_ADDR` | 按需 | `192.168.96.129:8848` | Seata 的 `registry.type=nacos`，故这里填 **Nacos** 地址（不是 Seata 自身的 8091） |
 | `HM_ROCKETMQ_ADDR` | 按需(marketing) | `192.168.96.129:9876` | RocketMQ nameserver |
@@ -134,6 +141,12 @@ cd frontend\admin-web  ; npm ci ; npm run dev    # :5174
 
 **Nacos 是运行必需**：配置导入写成 `optional:nacos:` 只让"启动"能在无 Nacos 时降级，
 但网关路由是 `lb://服务名`，Nacos 不可用时所有网关转发都会 503。本地无 Nacos 时请直连业务端口验证。
+
+> **注册 IP 不需要任何环境变量**（NF-6）：dev profile 已把 `HM_DISCOVERY_IP` 默认成 `127.0.0.1`。
+> 若改完仍看到 Nacos 里登记成 `192.168.96.1`，先确认两点：
+> ① 进程是**改配置之后重新构建/重新启动**的（改的是 `src/main/resources`，IDEA 需 Rebuild、
+> 命令行 `spring-boot:run` 会自动重新拷贝资源；`java -jar` 的旧 jar 必须重新 package）；
+> ② 旧实例已停掉——Nacos 是临时实例，新旧两个实例并存时网关联调到的可能还是旧的。
 
 容器编排见第 7 节；CI 见第 8 节。
 
@@ -184,6 +197,12 @@ docker build -f ..\..\docker\Dockerfile --build-arg MODULE=litemall-gateway -t l
   密钥库不进镜像层（H4）。
 - compose 把 `HM_SERVER_BIND` 覆盖为 `0.0.0.0`，并**把 9 个服务的端口都映射到宿主机**（8000–8008），
   这是为本地联调方便。**生产部署只应暴露网关 8000**，其余服务改用 `expose` 或不映射。
+- compose 同时把 `HM_DISCOVERY_IP` 显式置为**空字符串**（`"${HM_DISCOVERY_IP:-}"`），
+  与 `HM_SERVER_BIND: 0.0.0.0` 配对：容器内必须回退为自动探测容器自身 IP，否则会注册 `127.0.0.1`，
+  网关容器转发时打到自己回环、永远连不上。**必须带引号写成空字符串**——写成空值（null）会被
+  compose 理解成"从宿主机透传该变量"，宿主机上若有值就会串进容器。
+  语义已实测：变量**存在但为空** → 自动探测；而 cmd/PowerShell 的 `set X=` 是**删除**变量、
+  会走 yaml 默认值 `127.0.0.1`，两者语义不同，不要混淆。
 - `docker/.env.example` 是变量模板，必须复制为 `docker/.env`；真实口令不要入库。
 
 ## 8. CI
