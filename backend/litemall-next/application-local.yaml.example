@@ -1,0 +1,48 @@
+# ============================================================================
+# 本地开发机密配置（模板）—— 不进 git，每台机器/每个开发者一份
+# ----------------------------------------------------------------------------
+# 用法（换电脑只需一步，此后无需再配任何环境变量）：
+#   cp backend/litemall-next/application-local.yaml.example \
+#      backend/litemall-next/application-local.yaml
+#   然后按下面注释填入本机口令。application-local.yaml 已被 .gitignore 忽略。
+#
+# 生效方式：9 个服务的 application.yaml 里已声明
+#   spring.config.import:
+#     - optional:file:./application-local.yaml
+#     - optional:file:./config/application-local.yaml
+#     - optional:file:../application-local.yaml
+#   把本文件放在 backend/litemall-next/ 根目录（服务运行目录为其子模块，由 ../ 命中）；
+#   也可放到某个服务自己的目录（./）或 ./config/ 下。文件不存在时静默跳过，不影响启动。
+#
+# 为什么下面可以写成"大写环境变量名"：
+#   application.yaml 里的占位符形如 ${HM_JKS_PASSWORD:}，占位符解析是在整个 Environment
+#   里按"属性名"查找，与属性来源无关。所以把 HM_JKS_PASSWORD 作为属性写在本文件里，
+#   效果等同于设置同名环境变量；而 OS 环境变量优先级高于配置文件，因此生产用
+#   环境变量 / K8s Secret 注入时会自动覆盖本文件的值（覆盖顺序天然正确）。
+#
+# ⚠️ 生产环境不要把本文件放进部署目录（镜像/容器内不应存在）。
+# ============================================================================
+
+# ---- 必填：JWT 签名密钥库口令（仅 gateway / user / admin 三个服务需要）----
+HM_JKS_PASSWORD: <你的密钥库口令>
+
+# ---- 选填：以下均已有默认值，仅在需要覆盖时把注释打开 ----
+# HM_JKS_ALIAS: hmall                       # 密钥库条目别名（默认 hmall）
+# HM_JKS_LOCATION: classpath:litemall.jks   # 外挂写法：file:/opt/keys/litemall.jks
+
+# ---- 选填：/inner/** 内部调用共享密钥（dev 允许为空并告警；非 dev 为空则启动失败）----
+# HM_INTERNAL_TOKEN: dev-internal-token
+
+# ---- 选填：中间件地址 / 绑定地址 / profile ----
+# HM_ACTIVE_PROFILE: dev
+# HM_NACOS_ADDR: 192.168.96.129:8848
+# HM_SEATA_ADDR: 192.168.96.129:8848
+# HM_SERVER_BIND: 127.0.0.1     # 改 0.0.0.0 可被同网段其它设备（如真机调 mobile-web）访问
+# HM_DISCOVERY_IP: 127.0.0.1    # 注册到 Nacos 的 IP，必须与 HM_SERVER_BIND 一致，否则网关转发 Connection refused（NF-6）
+# HM_DB_USER: root
+# HM_LOG_LEVEL_APP: DEBUG
+
+# ---- 选填：数据库口令（各服务 application-dev.yaml 已提供 123456）----
+# hm:
+#   db:
+#     pw: 123456
