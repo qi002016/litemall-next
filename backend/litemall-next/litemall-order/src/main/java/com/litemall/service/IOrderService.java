@@ -7,6 +7,10 @@ import com.litemall.domain.PageVO;
 import com.litemall.domain.VO.OrderDetailVO;
 import com.litemall.domain.VO.OrderListItemVO;
 import com.litemall.domain.VO.OrderSubmitVO;
+import com.litemall.domain.dto.OrderAdminDTO;
+import com.litemall.domain.dto.OrderAdminStatsDTO;
+import com.litemall.domain.dto.OrderRefundDTO;
+import com.litemall.domain.dto.OrderShipDTO;
 
 /**
  * <p>
@@ -64,4 +68,38 @@ public interface IOrderService extends IService<Order> {
      * @param orderId 订单ID
      */
     void confirmReceive(Long orderId);
+
+    /* ==================== H5：管理端订单（admin 服务经 Feign 调用，不再直写 litemall_order） ==================== */
+
+    /**
+     * H5：管理端订单分页列表
+     *
+     * @param pageNum  页码
+     * @param pageSize 每页条数
+     * @param status   文本状态 unpaid/undelivered/shipped/confirmed/refund，空为全部
+     * @return 分页订单行（字段与改造前 admin 端返回一致）
+     */
+    PageVO<OrderAdminDTO> adminListOrders(Integer pageNum, Integer pageSize, String status);
+
+    /**
+     * H5：管理端首页订单统计
+     *
+     * @return 今日订单数 + 待发货订单数
+     */
+    OrderAdminStatsDTO adminOrderStats();
+
+    /**
+     * H5：管理端发货（状态机：仅 102 待发货 → 201 已发货；其余状态一律拒绝）
+     *
+     * @param dto 订单ID + 快递信息
+     */
+    void adminShip(OrderShipDTO dto);
+
+    /**
+     * H5：管理端退款（状态机：102/201/301 → 401 售后，并复用取消订单的库存回补 + 券回退；
+     * 401 视为幂等直接返回；101/103/402 拒绝）
+     *
+     * @param dto 订单ID + 退款金额/备注
+     */
+    void adminRefund(OrderRefundDTO dto);
 }

@@ -1,149 +1,119 @@
 package com.litemall.controller;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.litemall.domain.*;
-import com.litemall.mapper.AdminAdMapper;
-import com.litemall.mapper.AdminCouponMapper;
-import com.litemall.mapper.AdminTopicMapper;
+import com.litemall.client.MarketingClient;
+import com.litemall.domain.PageVO;
+import com.litemall.domain.Result;
+import com.litemall.domain.dto.AdDTO;
+import com.litemall.domain.dto.CouponDTO;
+import com.litemall.domain.dto.TopicDTO;
 import lombok.RequiredArgsConstructor;
-import org.springframework.util.StringUtils;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.Map;
-
+/**
+ * <p>
+ * 管理端营销接口（优惠券 / 广告 / 专题）。
+ * </p>
+ * <p>
+ * H5：不再持有 {@code AdminCouponMapper/AdminAdMapper/AdminTopicMapper}，
+ * 所有读写经 {@link MarketingClient} 调用 marketing 服务的
+ * {@code /inner/market/admin/**}。对外路径/方法/字段与改造前一致。
+ * </p>
+ */
 @RestController
 @RequestMapping("/admin/market")
 @RequiredArgsConstructor
 public class MarketingController {
 
-    private final AdminCouponMapper couponMapper;
-    private final AdminAdMapper adMapper;
-    private final AdminTopicMapper topicMapper;
+    private final MarketingClient marketingClient;
+
+    /* ---------- 优惠券 ---------- */
 
     @GetMapping("/coupon/list")
-    public Result<PageVO<AdminCoupon>> couponList(
+    public Result<PageVO<CouponDTO>> couponList(
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) String name) {
-        Page<AdminCoupon> p = couponMapper.selectPage(new Page<>(pageNum, pageSize),
-                new LambdaQueryWrapper<AdminCoupon>()
-                        .eq(AdminCoupon::getDeleted, false)
-                        .like(StringUtils.hasText(name), AdminCoupon::getName, name)
-                        .orderByDesc(AdminCoupon::getId));
-        return Result.ok(PageVO.of(p));
+        return Result.ok(marketingClient.adminListCoupons(pageNum, pageSize, name));
     }
 
-    @GetMapping("/ad/list")
-    public Result<PageVO<AdminAd>> adList(
-            @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "10") Integer pageSize,
-            @RequestParam(required = false) String name) {
-        Page<AdminAd> p = adMapper.selectPage(new Page<>(pageNum, pageSize),
-                new LambdaQueryWrapper<AdminAd>()
-                        .eq(AdminAd::getDeleted, false)
-                        .like(StringUtils.hasText(name), AdminAd::getName, name)
-                        .orderByDesc(AdminAd::getId));
-        return Result.ok(PageVO.of(p));
-    }
-
-    @GetMapping("/topic/list")
-    public Result<PageVO<AdminTopic>> topicList(
-            @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "10") Integer pageSize,
-            @RequestParam(required = false) String title) {
-        Page<AdminTopic> p = topicMapper.selectPage(new Page<>(pageNum, pageSize),
-                new LambdaQueryWrapper<AdminTopic>()
-                        .eq(AdminTopic::getDeleted, false)
-                        .like(StringUtils.hasText(title), AdminTopic::getTitle, title)
-                        .orderByDesc(AdminTopic::getId));
-        return Result.ok(PageVO.of(p));
-    }
-
-    // ---------- 优惠券 CRUD ----------
     @PostMapping("/coupon/create")
-    public Result<Void> couponCreate(@RequestBody AdminCoupon c) {
-        c.setId(null);
-        c.setStatus(0);
-        c.setDeleted(Boolean.FALSE);
-        c.setAddTime(LocalDateTime.now());
-        c.setUpdateTime(LocalDateTime.now());
-        couponMapper.insert(c);
+    public Result<Void> couponCreate(@RequestBody CouponDTO coupon) {
+        marketingClient.adminCreateCoupon(coupon);
         return Result.ok();
     }
 
     @PutMapping("/coupon/update")
-    public Result<Void> couponUpdate(@RequestBody AdminCoupon c) {
-        c.setUpdateTime(LocalDateTime.now());
-        couponMapper.updateById(c);
+    public Result<Void> couponUpdate(@RequestBody CouponDTO coupon) {
+        marketingClient.adminUpdateCoupon(coupon);
         return Result.ok();
     }
 
     @DeleteMapping("/coupon/delete")
     public Result<Void> couponDelete(@RequestParam Integer id) {
-        AdminCoupon c = new AdminCoupon();
-        c.setId(id);
-        c.setDeleted(Boolean.TRUE);
-        c.setUpdateTime(LocalDateTime.now());
-        couponMapper.updateById(c);
+        marketingClient.adminDeleteCoupon(id);
         return Result.ok();
     }
 
-    // ---------- 广告 CRUD ----------
+    /* ---------- 广告 ---------- */
+
+    @GetMapping("/ad/list")
+    public Result<PageVO<AdDTO>> adList(
+            @RequestParam(defaultValue = "1") Integer pageNum,
+            @RequestParam(defaultValue = "10") Integer pageSize,
+            @RequestParam(required = false) String name) {
+        return Result.ok(marketingClient.adminListAds(pageNum, pageSize, name));
+    }
+
     @PostMapping("/ad/create")
-    public Result<Void> adCreate(@RequestBody AdminAd a) {
-        a.setId(null);
-        a.setDeleted(Boolean.FALSE);
-        a.setAddTime(LocalDateTime.now());
-        a.setUpdateTime(LocalDateTime.now());
-        adMapper.insert(a);
+    public Result<Void> adCreate(@RequestBody AdDTO ad) {
+        marketingClient.adminCreateAd(ad);
         return Result.ok();
     }
 
     @PutMapping("/ad/update")
-    public Result<Void> adUpdate(@RequestBody AdminAd a) {
-        a.setUpdateTime(LocalDateTime.now());
-        adMapper.updateById(a);
+    public Result<Void> adUpdate(@RequestBody AdDTO ad) {
+        marketingClient.adminUpdateAd(ad);
         return Result.ok();
     }
 
     @DeleteMapping("/ad/delete")
     public Result<Void> adDelete(@RequestParam Integer id) {
-        AdminAd a = new AdminAd();
-        a.setId(id);
-        a.setDeleted(Boolean.TRUE);
-        a.setUpdateTime(LocalDateTime.now());
-        adMapper.updateById(a);
+        marketingClient.adminDeleteAd(id);
         return Result.ok();
     }
 
-    // ---------- 专题 CRUD ----------
+    /* ---------- 专题 ---------- */
+
+    @GetMapping("/topic/list")
+    public Result<PageVO<TopicDTO>> topicList(
+            @RequestParam(defaultValue = "1") Integer pageNum,
+            @RequestParam(defaultValue = "10") Integer pageSize,
+            @RequestParam(required = false) String title) {
+        return Result.ok(marketingClient.adminListTopics(pageNum, pageSize, title));
+    }
+
     @PostMapping("/topic/create")
-    public Result<Void> topicCreate(@RequestBody AdminTopic t) {
-        t.setId(null);
-        t.setDeleted(Boolean.FALSE);
-        t.setAddTime(LocalDateTime.now());
-        t.setUpdateTime(LocalDateTime.now());
-        topicMapper.insert(t);
+    public Result<Void> topicCreate(@RequestBody TopicDTO topic) {
+        marketingClient.adminCreateTopic(topic);
         return Result.ok();
     }
 
     @PutMapping("/topic/update")
-    public Result<Void> topicUpdate(@RequestBody AdminTopic t) {
-        t.setUpdateTime(LocalDateTime.now());
-        topicMapper.updateById(t);
+    public Result<Void> topicUpdate(@RequestBody TopicDTO topic) {
+        marketingClient.adminUpdateTopic(topic);
         return Result.ok();
     }
 
     @DeleteMapping("/topic/delete")
     public Result<Void> topicDelete(@RequestParam Integer id) {
-        AdminTopic t = new AdminTopic();
-        t.setId(id);
-        t.setDeleted(Boolean.TRUE);
-        t.setUpdateTime(LocalDateTime.now());
-        topicMapper.updateById(t);
+        marketingClient.adminDeleteTopic(id);
         return Result.ok();
     }
 }

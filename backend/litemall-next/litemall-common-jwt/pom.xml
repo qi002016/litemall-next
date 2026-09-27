@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.litemall</groupId>
+        <artifactId>litemall-next</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>litemall-common-jwt</artifactId>
+    <name>litemall-common-jwt</name>
+    <description>
+        M11：JWT 签发/校验与密钥库加载的唯一实现（JwtTool / JwtProperties / KeyPair），
+        供 gateway、user、admin 复用，替代此前的三份复制代码。
+    </description>
+
+    <dependencies>
+        <!--
+            TokenPrincipal / UnauthorizedException 来自 litemall-common。
+            此处标记 optional：消费方(gateway/user/admin)都已自行依赖 litemall-common，
+            不再传递依赖，避免网关经本模块重新引入其在 common 上排除掉的 Servlet/数据访问依赖。
+        -->
+        <dependency>
+            <groupId>com.litemall</groupId>
+            <artifactId>litemall-common</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+            <optional>true</optional>
+        </dependency>
+        <!-- @AutoConfiguration / @ConfigurationProperties / @ConditionalOnMissingBean -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+        <!-- KeyStoreKeyFactory(密钥库加载) -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+        <!-- hutool-jwt(含于 hutool-all，版本由父 POM dependencyManagement 管理) -->
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+        </dependency>
+    </dependencies>
+</project>

@@ -12,6 +12,12 @@
     <name>litemall-user</name>
     <description>litemall-user</description>
     <dependencies>
+        <!-- M11：JWT 单一实现（原 user/utils/JwtTool、config/JwtProperties 已删除） -->
+        <dependency>
+            <groupId>com.litemall</groupId>
+            <artifactId>litemall-common-jwt</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
         <!-- 公共依赖聚合:Web / MyBatis-Plus / MySQL / Redis / Nacos / Sentinel / Seata 统一由 common 提供 -->
         <dependency>
             <groupId>com.litemall</groupId>

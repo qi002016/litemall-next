@@ -6,7 +6,7 @@ import com.litemall.config.InnerApiProperties;
 import com.litemall.domain.TokenPrincipal;
 import com.litemall.exception.ForbiddenException;
 import com.litemall.exception.UnauthorizedException;
-import com.litemall.utils.JwtTool;
+import com.litemall.jwt.JwtTool;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;

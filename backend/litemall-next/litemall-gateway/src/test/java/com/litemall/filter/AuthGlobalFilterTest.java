@@ -3,7 +3,7 @@ package com.litemall.filter;
 import com.litemall.config.AuthProperties;
 import com.litemall.domain.TokenPrincipal;
 import com.litemall.exception.UnauthorizedException;
-import com.litemall.utils.JwtTool;
+import com.litemall.jwt.JwtTool;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

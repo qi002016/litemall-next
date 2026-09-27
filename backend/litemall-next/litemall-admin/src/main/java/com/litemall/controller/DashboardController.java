@@ -1,47 +1,45 @@
 package com.litemall.controller;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.litemall.client.GoodsClient;
+import com.litemall.client.OrderClient;
+import com.litemall.client.UserClient;
 import com.litemall.domain.Result;
-import com.litemall.mapper.AdminGoodsMapper;
-import com.litemall.mapper.AdminOrderMapper;
-import com.litemall.mapper.AdminUserMapper;
+import com.litemall.domain.dto.OrderAdminStatsDTO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * <p>
+ * 管理端首页统计。
+ * </p>
+ * <p>
+ * H5：不再直连 {@code litemall_goods/litemall_order/litemall_user} 三张表，
+ * 改为分别经 {@link GoodsClient}/{@link OrderClient}/{@link UserClient}
+ * 调用各域的 {@code /inner/**} 统计接口；返回字段名与改造前一致。
+ * </p>
+ */
 @RestController
 @RequestMapping("/admin/dashboard")
 @RequiredArgsConstructor
 public class DashboardController {
 
-    private final AdminGoodsMapper goodsMapper;
-    private final AdminOrderMapper orderMapper;
-    private final AdminUserMapper userMapper;
+    private final GoodsClient goodsClient;
+    private final OrderClient orderClient;
+    private final UserClient userClient;
 
     @GetMapping("/stats")
     public Result<Map<String, Object>> stats() {
-        long goodsTotal = goodsMapper.selectCount(new LambdaQueryWrapper<com.litemall.domain.AdminGoods>()
-                .eq(com.litemall.domain.AdminGoods::getDeleted, false));
-        long userTotal = userMapper.selectCount(new LambdaQueryWrapper<com.litemall.domain.AdminUser>()
-                .eq(com.litemall.domain.AdminUser::getDeleted, false));
-        LocalDateTime today = LocalDate.now().atStartOfDay();
-        long todayOrders = orderMapper.selectCount(new LambdaQueryWrapper<com.litemall.domain.AdminOrder>()
-                .eq(com.litemall.domain.AdminOrder::getDeleted, false)
-                .ge(com.litemall.domain.AdminOrder::getAddTime, today));
-        long undelivered = orderMapper.selectCount(new LambdaQueryWrapper<com.litemall.domain.AdminOrder>()
-                .eq(com.litemall.domain.AdminOrder::getDeleted, false)
-                .eq(com.litemall.domain.AdminOrder::getOrderStatus, 102));
-        Map<String, Object> m = new HashMap<>();
-        m.put("goodsTotal", goodsTotal);
-        m.put("userTotal", userTotal);
-        m.put("todayOrders", todayOrders);
-        m.put("undelivered", undelivered);
-        return Result.ok(m);
+        OrderAdminStatsDTO orderStats = orderClient.adminOrderStats();
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("goodsTotal", goodsClient.adminCountGoods());
+        stats.put("userTotal", userClient.adminCountUsers());
+        stats.put("todayOrders", orderStats == null ? 0L : orderStats.getTodayOrders());
+        stats.put("undelivered", orderStats == null ? 0L : orderStats.getUndelivered());
+        return Result.ok(stats);
     }
 }

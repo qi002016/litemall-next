@@ -1,92 +1,86 @@
 package com.litemall.controller;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.litemall.domain.AdminOrder;
+import com.litemall.client.OrderClient;
 import com.litemall.domain.PageVO;
 import com.litemall.domain.Result;
-import com.litemall.mapper.AdminOrderMapper;
+import com.litemall.domain.dto.OrderAdminDTO;
+import com.litemall.domain.dto.OrderRefundDTO;
+import com.litemall.domain.dto.OrderShipDTO;
 import lombok.RequiredArgsConstructor;
-import org.springframework.util.StringUtils;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.time.LocalDateTime;
-import java.util.HashMap;
+import java.math.BigDecimal;
 import java.util.Map;
 
+/**
+ * <p>
+ * 管理端订单接口。
+ * </p>
+ * <p>
+ * H5：本类不再持有 {@code AdminOrderMapper}，所有订单读写都经 {@link OrderClient}
+ * 调用 order 服务的 {@code /inner/order/admin/**}；状态流转（发货 201、退款 401/402）
+ * 的合法性校验、库存回补与优惠券回退全部在 order 服务内完成。
+ * 对外路径/方法/字段与改造前完全一致。
+ * </p>
+ */
 @RestController
 @RequestMapping("/admin/order")
 @RequiredArgsConstructor
 public class OrderController {
 
-    private final AdminOrderMapper orderMapper;
-
-    private String statusText(Integer s) {
-        if (s == null) return "unknown";
-        return switch (s) {
-            case 101 -> "unpaid";
-            case 102 -> "undelivered";
-            case 201 -> "shipped";
-            case 301 -> "confirmed";
-            default -> (s >= 400 ? "refund" : "unknown");
-        };
-    }
-
-    private Integer statusCode(String text) {
-        if (!StringUtils.hasText(text)) return null;
-        return switch (text) {
-            case "unpaid" -> 101;
-            case "undelivered" -> 102;
-            case "shipped" -> 201;
-            case "confirmed" -> 301;
-            case "refund" -> 401;
-            default -> null;
-        };
-    }
+    private final OrderClient orderClient;
 
     @GetMapping("/list")
-    public Result<PageVO<Map<String, Object>>> list(
+    public Result<PageVO<OrderAdminDTO>> list(
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) String status) {
-        Integer code = statusCode(status);
-        Page<AdminOrder> p = orderMapper.selectPage(new Page<>(pageNum, pageSize),
-                new LambdaQueryWrapper<AdminOrder>()
-                        .eq(AdminOrder::getDeleted, false)
-                        .eq(code != null, AdminOrder::getOrderStatus, code)
-                        .orderByDesc(AdminOrder::getId));
-        PageVO<Map<String, Object>> vo = PageVO.of(p, o -> {
-            Map<String, Object> m = new HashMap<>();
-            m.put("id", o.getId());
-            m.put("orderSn", o.getOrderSn());
-            m.put("userId", o.getUserId());
-            m.put("orderAmount", o.getOrderPrice());
-            m.put("status", statusText(o.getOrderStatus()));
-            m.put("addTime", o.getAddTime());
-            return m;
-        });
-        return Result.ok(vo);
+        return Result.ok(orderClient.adminListOrders(pageNum, pageSize, status));
     }
 
     @PostMapping("/ship")
     public Result<Void> ship(@RequestBody Map<String, Object> body) {
-        Integer orderId = (Integer) body.get("orderId");
-        AdminOrder o = new AdminOrder();
-        o.setId(orderId);
-        o.setOrderStatus(201); // 已发货
-        o.setShipTime(LocalDateTime.now());
-        orderMapper.updateById(o);
+        OrderShipDTO dto = new OrderShipDTO();
+        dto.setOrderId(toLong(body.get("orderId")));
+        dto.setShipChannel(toStr(body.get("shipChannel")));
+        dto.setShipSn(toStr(body.get("shipSn")));
+        orderClient.adminShip(dto);
         return Result.ok();
     }
 
     @PostMapping("/refund")
     public Result<Void> refund(@RequestBody Map<String, Object> body) {
-        Integer orderId = (Integer) body.get("orderId");
-        AdminOrder o = new AdminOrder();
-        o.setId(orderId);
-        o.setOrderStatus(401); // 退款
-        o.setRefundTime(LocalDateTime.now());
-        orderMapper.updateById(o);
+        OrderRefundDTO dto = new OrderRefundDTO();
+        dto.setOrderId(toLong(body.get("orderId")));
+        dto.setRefundAmount(toDecimal(body.get("refundAmount")));
+        dto.setRefundContent(toStr(body.get("refundContent")));
+        orderClient.adminRefund(dto);
         return Result.ok();
+    }
+
+    private Long toLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        return Long.valueOf(value.toString());
+    }
+
+    private String toStr(Object value) {
+        return value == null ? null : value.toString();
+    }
+
+    private BigDecimal toDecimal(Object value) {
+        if (value == null || value.toString().isBlank()) {
+            return null;
+        }
+        return new BigDecimal(value.toString());
     }
 }

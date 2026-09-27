@@ -18,6 +18,12 @@
 	</properties>
 
 	<dependencies>
+		<!-- M11：JWT 单一实现（JwtTool/JwtProperties/KeyPair 自动装配） -->
+		<dependency>
+			<groupId>com.litemall</groupId>
+			<artifactId>litemall-common-jwt</artifactId>
+			<version>0.0.1-SNAPSHOT</version>
+		</dependency>
 		<!-- common(网关是 WebFlux 应用,排除 common 中的 Servlet Web / 数据访问 / 文档 UI 依赖) -->
 		<dependency>
 			<groupId>com.litemall</groupId>

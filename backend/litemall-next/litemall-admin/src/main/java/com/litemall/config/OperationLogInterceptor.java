@@ -1,9 +1,10 @@
 package com.litemall.config;
 
-import com.litemall.domain.Admin;
-import com.litemall.domain.AdminLog;
-import com.litemall.mapper.AdminLogMapper;
-import com.litemall.mapper.AdminMapper;
+import com.litemall.domain.AdminAccount;
+import com.litemall.domain.AdminOperationLog;
+import com.litemall.mapper.AdminAccountMapper;
+import com.litemall.mapper.AdminOperationLogMapper;
+import com.litemall.utils.UserContext;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -13,14 +14,19 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import java.time.LocalDateTime;
 
 /**
- * 记录管理端写操作（POST/PUT/DELETE）日志到 litemall_log
+ * 记录管理端写操作（POST/PUT/DELETE）日志到 litemall_log（admin 域自有表，H5 后
+ * 原 {@code AdminLog}/{@code Admin} 实体已分别替换为 {@link AdminOperationLog}/{@link AdminAccount}）。
+ * <p>
+ * 操作人取自 {@code AdminAuthFilter} 写入的 {@link UserContext}（令牌中的 adminId），
+ * 而非可伪造的 {@code user-info} 请求头——该头在过滤器里已被剥离。
+ * </p>
  */
 @Component
 @RequiredArgsConstructor
 public class OperationLogInterceptor implements HandlerInterceptor {
 
-    private final AdminLogMapper logMapper;
-    private final AdminMapper adminMapper;
+    private final AdminOperationLogMapper logMapper;
+    private final AdminAccountMapper adminAccountMapper;
 
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response,
@@ -33,16 +39,18 @@ public class OperationLogInterceptor implements HandlerInterceptor {
         if (path.startsWith("/admin/auth/login")) {
             return;
         }
-        String userInfo = request.getHeader("user-info");
         String adminName = "system";
-        if (userInfo != null) {
-            try {
-                Admin a = adminMapper.selectById(Long.valueOf(userInfo));
+        try {
+            Long adminId = UserContext.getUser();
+            if (adminId != null) {
+                AdminAccount a = adminAccountMapper.selectById(adminId);
                 if (a != null) adminName = a.getUsername();
-            } catch (Exception ignored) {}
+            }
+        } catch (Exception ignored) {
+            // H5：日志记录失败不影响业务响应
         }
         boolean ok = ex == null && response.getStatus() < 400;
-        AdminLog log = new AdminLog();
+        AdminOperationLog log = new AdminOperationLog();
         log.setAdmin(adminName);
         log.setIp(request.getRemoteAddr());
         log.setType(1);

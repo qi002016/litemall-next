@@ -1,7 +1,7 @@
 package com.litemall.service.impl;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
-import com.litemall.config.JwtProperties;
 import com.litemall.domain.DTO.CaptchaDTO;
 import com.litemall.domain.DTO.PasswordUpdateDTO;
 import com.litemall.domain.DTO.UserLoginFormDTO;
@@ -14,10 +14,15 @@ import com.litemall.domain.TokenPrincipal;
 import com.litemall.domain.VO.AddressVO;
 import com.litemall.domain.VO.UserInfoVO;
 import com.litemall.domain.VO.UserLoginVO;
+import com.litemall.domain.PageVO;
+import com.litemall.domain.dto.UserAdminDTO;
 import com.litemall.domain.dto.UserInfoDTO;
+import com.litemall.domain.dto.UserStatusDTO;
 import com.litemall.enums.UserStatus;
 import com.litemall.exception.BadRequestException;
 import com.litemall.exception.ForbiddenException;
+import com.litemall.jwt.JwtProperties;
+import com.litemall.jwt.JwtTool;
 import com.litemall.mapper.UserMapper;
 import com.litemall.notify.NotifyService;
 import com.litemall.notify.NotifyType;
@@ -27,6 +32,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -224,5 +230,55 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         vo.setUsername(user.getUsername());
         vo.setToken(token);
         return vo;
+    }
+
+    /* ==================== H5：管理端用户（admin 服务 Feign 调用） ==================== */
+
+    @Override
+    public PageVO<UserAdminDTO> adminListUsers(Integer pageNum, Integer pageSize, String username) {
+        int pn = pageNum == null || pageNum < 1 ? 1 : pageNum;
+        int ps = pageSize == null || pageSize < 1 || pageSize > 100 ? 10 : pageSize;
+        Page<User> p = lambdaQuery()
+                .eq(User::getDeleted, false)
+                .like(StringUtils.hasText(username), User::getUsername, username)
+                .orderByDesc(User::getId)
+                .page(new Page<>(pn, ps));
+        // 字段与改造前 admin 端返回的 AdminUser 保持一致：id/username/nickname/mobile/userLevel/status/addTime
+        return PageVO.of(p, u -> {
+            UserAdminDTO dto = new UserAdminDTO();
+            dto.setId(u.getId());
+            dto.setUsername(u.getUsername());
+            dto.setNickname(u.getNickname());
+            dto.setMobile(u.getMobile());
+            dto.setUserLevel(u.getUserLevel());
+            dto.setStatus(u.getStatus());
+            dto.setAddTime(u.getAddTime());
+            return dto;
+        });
+    }
+
+    @Override
+    public long adminCountUsers() {
+        return lambdaQuery().eq(User::getDeleted, false).count();
+    }
+
+    @Override
+    public void adminUpdateUserStatus(UserStatusDTO dto) {
+        if (dto == null || dto.getId() == null || dto.getStatus() == null) {
+            throw new BadRequestException("用户ID与状态不能为空");
+        }
+        // 取值收口在 user 域自己的枚举上（0 可用 / 1 禁用 / 2 注销），非法值直接拒绝
+        UserStatus target = UserStatus.of(dto.getStatus());
+        User user = getById(dto.getId());
+        if (user == null || Boolean.TRUE.equals(user.getDeleted())) {
+            throw new BadRequestException("用户不存在");
+        }
+        if (target.getValue() == (user.getStatus() == null ? -1 : user.getStatus())) {
+            // 状态未变化：幂等直接返回，避免无意义写库
+            return;
+        }
+        user.setStatus(target.getValue());
+        user.setUpdateTime(LocalDateTime.now());
+        updateById(user);
     }
 }

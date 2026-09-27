@@ -1,14 +1,19 @@
 package com.litemall.cache;
 
-import tools.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
@@ -20,15 +25,35 @@ import java.util.function.Supplier;
  * <p>
  * M16：由 {@code CacheAutoConfiguration} 按需装配（仅 classpath 存在 Redis 时），
  * 不再用 {@code @Component} 被组件扫描强推给所有服务（网关无 Redis 依赖会启动失败）。
+ * <p>
+ * P1 改动：
+ * <ul>
+ *   <li><b>H7</b>：{@link #delByPrefix(String)} 改用 {@code SCAN} + 批量删除，不再使用阻塞 Redis 的 {@code KEYS}</li>
+ *   <li><b>M7</b>：反序列化失败不再静默返回 null（与"空值缓存"语义混同），
+ *       而是删除损坏 key、{@code log.error} 并抛出，使故障可见（下次请求自动回源）</li>
+ *   <li><b>M8</b>：删除/失效时向 {@link #INVALIDATE_CHANNEL} 广播，其他实例同步清理本地 Caffeine，
+ *       解决多节点下本地缓存最长 60s 不一致</li>
+ *   <li>新增 {@link #getShared}：跳过本地 Caffeine，只走 Redis，用于要求"失效即时全局可见"的数据（如库存）</li>
+ * </ul>
  */
 @Slf4j
 @RequiredArgsConstructor
 public class CacheService {
 
+    /** M8：本地缓存失效广播频道 */
+    public static final String INVALIDATE_CHANNEL = "litemall:cache:invalidate";
+    /** 广播消息前缀：单 key 失效 */
+    public static final String MSG_KEY = "k:";
+    /** 广播消息前缀：前缀失效 */
+    public static final String MSG_PREFIX = "p:";
+    /** H7：单次前缀删除的 SCAN 上限，避免误删海量 key 时长时间占用连接 */
+    private static final long MAX_SCAN_KEYS = 10_000L;
+    private static final long SCAN_COUNT = 500L;
+
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
 
-    /** 本地缓存：Caffeine 60s，挡热点读 */
+    /** 本地缓存：Caffeine 60s，挡热点读（跨节点失效由广播通道保证） */
     private final Cache<String, String> localCache = Caffeine.newBuilder()
             .maximumSize(1024)
             .expireAfterWrite(Duration.ofSeconds(60))
@@ -60,54 +85,99 @@ public class CacheService {
         return doGet(key, type, ttlSeconds, jitterSeconds, dbLoader, true);
     }
 
-    /** 删缓存（写 DB 后调用） */
+    /**
+     * 共享读：**跳过本地 Caffeine**，只走 Redis -> DB。
+     * <p>
+     * 用于"一旦失效就必须全局立刻可见"的数据（如库存）。本地缓存会让其他节点最长 60s 看到旧值，
+     * 即使失效广播也存在极短竞态；这类数据直接从 Redis 读，配合 {@link #del(String)} 的全局删除即可精确失效。
+     */
+    public <T> T getShared(String key, Class<T> type, long ttlSeconds, long jitterSeconds, Supplier<T> dbLoader) {
+        String json = stringRedisTemplate.opsForValue().get(key);
+        if (json != null) {
+            return decode(key, json, type);
+        }
+        return loadAndCache(key, type, ttlSeconds, jitterSeconds, dbLoader).data();
+    }
+
+    /** 删缓存（写 DB 后调用）：本机失效 + Redis 删除 + 广播其他节点失效 */
     public void del(String key) {
         localCache.invalidate(key);
         stringRedisTemplate.delete(key);
+        publish(MSG_KEY + key);
     }
 
     /** List 读：loader 返回 List，元素类型 elementType */
-    @SuppressWarnings("unchecked")
-    public <T> java.util.List<T> getList(String key, Class<T> elementType, long ttlSeconds, long jitterSeconds,
-                                        Supplier<java.util.List<T>> dbLoader) {
+    public <T> List<T> getList(String key, Class<T> elementType, long ttlSeconds, long jitterSeconds,
+                               Supplier<List<T>> dbLoader) {
         // 1.本地
         String local = localCache.getIfPresent(key);
         if (local != null) {
-            return decodeList(local, elementType);
+            return decodeList(key, local, elementType);
         }
         // 2.Redis
         String json = stringRedisTemplate.opsForValue().get(key);
         if (json != null) {
             localCache.put(key, json);
-            return decodeList(json, elementType);
+            return decodeList(key, json, elementType);
         }
-        // 3.回源
-        java.util.List<T> data = dbLoader.get();
-        String value = data == null || data.isEmpty() ? NULL_TAG : writeJson(data);
-        long actualTtl = (data == null || data.isEmpty()) ? NULL_TTL : ttlSeconds + RANDOM.nextLong(jitterSeconds + 1);
+        // 3.回源（空列表按"空值缓存"处理，沿用原有防穿透语义）
+        List<T> data = dbLoader.get();
+        boolean empty = data == null || data.isEmpty();
+        String value = empty ? NULL_TAG : writeJson(data);
+        long actualTtl = empty ? NULL_TTL : ttlSeconds + RANDOM.nextLong(jitterSeconds + 1);
         stringRedisTemplate.opsForValue().set(key, value, actualTtl, TimeUnit.SECONDS);
         localCache.put(key, value);
-        return data == null ? java.util.List.of() : data;
+        return data == null ? List.of() : data;
     }
 
-    @SuppressWarnings("unchecked")
-    private <T> java.util.List<T> decodeList(String json, Class<T> elementType) {
-        if (NULL_TAG.equals(json)) return java.util.List.of();
-        try {
-            return objectMapper.readValue(json,
-                    objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, elementType));
-        } catch (Exception e) {
-            log.warn("cache list decode fail: {}", e.getMessage());
-            return java.util.List.of();
-        }
-    }
-
-    /** 按前缀批量删（SCAN） */
+    /**
+     * H7：按前缀批量删（{@code SCAN} 游标遍历 + 批量删除，不再使用 {@code KEYS}）。
+     * <p>
+     * 单次最多处理 {@link #MAX_SCAN_KEYS} 个 key（超出会告警），避免误删海量 key 时长时间占用连接；
+     * 未删完的部分需由调用方按需再次调用。
+     */
     public void delByPrefix(String prefix) {
-        localCache.asMap().keySet().removeIf(k -> k.startsWith(prefix));
-        var keys = stringRedisTemplate.keys(prefix + "*");
-        if (keys != null && !keys.isEmpty()) {
+        evictLocalByPrefix(prefix);
+        Set<String> keys = scanKeys(prefix + "*");
+        if (!keys.isEmpty()) {
+            // delete(Collection) 内部以 pipeline 批量发送，避免逐 key 往返
             stringRedisTemplate.delete(keys);
+        }
+        publish(MSG_PREFIX + prefix);
+    }
+
+    /** M8：仅清理本机 Caffeine 的单 key（供广播监听器调用） */
+    public void evictLocal(String key) {
+        localCache.invalidate(key);
+    }
+
+    /** M8：仅清理本机 Caffeine 的前缀 key（供广播监听器调用） */
+    public void evictLocalByPrefix(String prefix) {
+        localCache.asMap().keySet().removeIf(k -> k.startsWith(prefix));
+    }
+
+    private Set<String> scanKeys(String pattern) {
+        Set<String> keys = new HashSet<>();
+        ScanOptions options = ScanOptions.scanOptions().match(pattern).count(SCAN_COUNT).build();
+        try (Cursor<String> cursor = stringRedisTemplate.scan(options)) {
+            while (cursor.hasNext()) {
+                keys.add(cursor.next());
+                if (keys.size() >= MAX_SCAN_KEYS) {
+                    log.warn("[H7] delByPrefix 达到单次上限 {}，pattern={}，剩余 key 需再次调用清理",
+                            MAX_SCAN_KEYS, pattern);
+                    break;
+                }
+            }
+        }
+        return keys;
+    }
+
+    private void publish(String message) {
+        try {
+            stringRedisTemplate.convertAndSend(INVALIDATE_CHANNEL, message);
+        } catch (Exception e) {
+            // 广播失败不影响本机与 Redis 的删除结果：其他节点最多等到本地 TTL 到期
+            log.warn("[M8] 缓存失效广播失败, message={}, err={}", message, e.getMessage());
         }
     }
 
@@ -116,19 +186,21 @@ public class CacheService {
         // 1.本地缓存
         String local = localCache.getIfPresent(key);
         if (local != null) {
-            return decode(local, type);
+            return decode(key, local, type);
         }
         // 2.Redis
         String json = stringRedisTemplate.opsForValue().get(key);
         if (json != null) {
             localCache.put(key, json);
-            return decode(json, type);
+            return decode(key, json, type);
         }
         // 3.回源
         if (withLock) {
             return loadWithLock(key, type, ttlSeconds, jitterSeconds, dbLoader);
         }
-        return loadAndCache(key, type, ttlSeconds, jitterSeconds, dbLoader);
+        Encoded<T> encoded = loadAndCache(key, type, ttlSeconds, jitterSeconds, dbLoader);
+        localCache.put(key, encoded.json());
+        return encoded.data();
     }
 
     private <T> T loadWithLock(String key, Class<T> type, long ttl, long jitter, Supplier<T> loader) {
@@ -141,45 +213,92 @@ public class CacheService {
                 String again = stringRedisTemplate.opsForValue().get(key);
                 if (again != null) {
                     localCache.put(key, again);
-                    return decode(again, type);
+                    return decode(key, again, type);
                 }
-                return loadAndCache(key, type, ttl, jitter, loader);
+                Encoded<T> encoded = loadAndCache(key, type, ttl, jitter, loader);
+                localCache.put(key, encoded.json());
+                return encoded.data();
             } finally {
                 stringRedisTemplate.delete(lockKey);
             }
         }
         // 没拿到锁：短暂重试读缓存
         for (int i = 0; i < LOCK_RETRY; i++) {
-            try { Thread.sleep(LOCK_WAIT_MS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            try {
+                Thread.sleep(LOCK_WAIT_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
             String json = stringRedisTemplate.opsForValue().get(key);
             if (json != null) {
                 localCache.put(key, json);
-                return decode(json, type);
+                return decode(key, json, type);
             }
         }
         // 兜底：直接回源（不阻塞）
-        return loadAndCache(key, type, ttl, jitter, loader);
+        Encoded<T> encoded = loadAndCache(key, type, ttl, jitter, loader);
+        localCache.put(key, encoded.json());
+        return encoded.data();
     }
 
-    private <T> T loadAndCache(String key, Class<T> type, long ttl, long jitter, Supplier<T> loader) {
+    private <T> Encoded<T> loadAndCache(String key, Class<T> type, long ttl, long jitter, Supplier<T> loader) {
         T data = loader.get();
+        return encodeAndCache(key, data, ttl, jitter);
+    }
+
+    private <T> Encoded<T> encodeAndCache(String key, T data, long ttl, long jitter) {
         long actualTtl = data == null ? NULL_TTL : ttl + RANDOM.nextLong(jitter + 1);
         String value = data == null ? NULL_TAG : writeJson(data);
         stringRedisTemplate.opsForValue().set(key, value, actualTtl, TimeUnit.SECONDS);
-        localCache.put(key, value);
-        return data;
+        return new Encoded<>(value, data);
     }
 
-    private <T> T decode(String json, Class<T> type) {
+    /** 反序列化结果与写入 Redis 的原文（避免为写本地缓存重复序列化） */
+    private record Encoded<T>(String json, T data) {
+    }
+
+    /**
+     * M7：区分"空值缓存"与"解码故障"。
+     * <ul>
+     *   <li>{@code NULL_TAG} → 返回 null（正常的空值缓存，防穿透）</li>
+     *   <li>解码失败 → 删除损坏 key（自愈，下次请求回源）、{@code log.error} 并抛出</li>
+     * </ul>
+     */
+    private <T> T decode(String key, String json, Class<T> type) {
         if (NULL_TAG.equals(json)) {
             return null;
         }
         try {
             return objectMapper.readValue(json, type);
         } catch (Exception e) {
-            log.warn("cache decode fail, key={}, err={}", json, e.getMessage());
-            return null;
+            evictBroken(key, json, e, type.getSimpleName());
+            throw new IllegalStateException("缓存数据损坏，无法反序列化为 " + type.getSimpleName(), e);
         }
+    }
+
+    private <T> List<T> decodeList(String key, String json, Class<T> elementType) {
+        if (NULL_TAG.equals(json)) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(json,
+                    objectMapper.getTypeFactory().constructCollectionType(List.class, elementType));
+        } catch (Exception e) {
+            evictBroken(key, json, e, "List<" + elementType.getSimpleName() + ">");
+            throw new IllegalStateException("缓存数据损坏，无法反序列化为 List<" + elementType.getSimpleName() + ">", e);
+        }
+    }
+
+    /** M7：删除损坏的 key 并告警，使下一次请求自动回源（自愈），同时让本次故障可见 */
+    private void evictBroken(String key, String json, Exception cause, String targetType) {
+        log.error("[M7] 缓存解码失败，删除损坏 key 以便回源。key={}, target={}, value={}, err={}",
+                key, targetType, json, cause.getMessage(), cause);
+        try {
+            stringRedisTemplate.delete(key);
+        } catch (Exception e) {
+            log.warn("[M7] 删除损坏 key 失败, key={}, err={}", key, e.getMessage());
+        }
+        localCache.invalidate(key);
     }
 
     private String writeJson(Object o) {

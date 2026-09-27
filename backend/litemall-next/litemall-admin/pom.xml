@@ -12,6 +12,12 @@
     <name>litemall-admin</name>
     <description>litemall-admin 运营后台服务</description>
     <dependencies>
+        <!-- M11：JWT 单一实现（原 admin/utils/JwtTool、config/JwtProperties 已删除） -->
+        <dependency>
+            <groupId>com.litemall</groupId>
+            <artifactId>litemall-common-jwt</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
         <dependency>
             <groupId>com.litemall</groupId>
             <artifactId>litemall-common</artifactId>

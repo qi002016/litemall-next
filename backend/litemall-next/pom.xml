@@ -22,6 +22,7 @@
 	<!-- 所有子模块(新增模块后务必登记到这里) -->
 	<modules>
 		<module>litemall-common</module>
+		<module>litemall-common-jwt</module>
 		<module>litemall-api</module>
 		<module>litemall-gateway</module>
 		<module>litemall-goods</module>

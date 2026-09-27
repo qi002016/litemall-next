@@ -2,7 +2,7 @@ package com.litemall.filter;
 
 import cn.hutool.core.util.StrUtil;
 import com.litemall.domain.TokenPrincipal;
-import com.litemall.utils.JwtTool;
+import com.litemall.jwt.JwtTool;
 import com.litemall.utils.UserContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

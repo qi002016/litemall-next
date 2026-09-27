@@ -2,10 +2,16 @@ package com.litemall.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.litemall.domain.PO.Order;
+import com.litemall.domain.PageVO;
+import com.litemall.domain.dto.OrderAdminDTO;
+import com.litemall.domain.dto.OrderAdminStatsDTO;
 import com.litemall.domain.dto.OrderPayInfoDTO;
+import com.litemall.domain.dto.OrderRefundDTO;
+import com.litemall.domain.dto.OrderShipDTO;
 import com.litemall.domain.dto.PaySuccessDTO;
 import com.litemall.exception.BadRequestException;
 import com.litemall.mapper.OrderMapper;
+import com.litemall.service.IOrderService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +47,7 @@ public class OrderInnerController {
     private static final int STATUS_REFUND = 401;
 
     private final OrderMapper orderMapper;
+    private final IOrderService orderService;
 
     @Operation(summary = "查询订单支付信息")
     @GetMapping("/pay/info")
@@ -101,5 +108,33 @@ public class OrderInnerController {
         order.setRefundTime(now);
         order.setUpdateTime(now);
         orderMapper.updateById(order);
+    }
+
+    /* ==================== H5：管理端订单内部接口（admin 服务 Feign 调用） ==================== */
+
+    @Operation(summary = "管理端订单分页列表")
+    @GetMapping("/admin/list")
+    public PageVO<OrderAdminDTO> adminList(@RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
+                                           @RequestParam(value = "pageSize", defaultValue = "10") Integer pageSize,
+                                           @RequestParam(value = "status", required = false) String status) {
+        return orderService.adminListOrders(pageNum, pageSize, status);
+    }
+
+    @Operation(summary = "管理端首页订单统计")
+    @GetMapping("/admin/stats")
+    public OrderAdminStatsDTO adminStats() {
+        return orderService.adminOrderStats();
+    }
+
+    @Operation(summary = "管理端发货（状态机：仅 102 待发货 → 201 已发货）")
+    @PostMapping("/admin/ship")
+    public void adminShip(@RequestBody OrderShipDTO dto) {
+        orderService.adminShip(dto);
+    }
+
+    @Operation(summary = "管理端退款（状态机：102/201/301 → 401，含库存回补与券回退）")
+    @PostMapping("/admin/refund")
+    public void adminRefund(@RequestBody OrderRefundDTO dto) {
+        orderService.adminRefund(dto);
     }
 }

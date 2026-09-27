@@ -1,27 +1,19 @@
 package com.litemall.config;
 
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.encrypt.KeyStoreKeyFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import java.security.KeyPair;
-
+/**
+ * M11：KeyPair 与 JwtTool 已由 {@code litemall-common-jwt} 自动装配，
+ * 本类只保留密码编码器（业务自身的密码哈希能力）。
+ */
 @Configuration
-@EnableConfigurationProperties(JwtProperties.class)
 public class SecurityConfig {
 
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
-    }
-
-    @Bean
-    public KeyPair keyPair(JwtProperties properties) {
-        KeyStoreKeyFactory keyStoreKeyFactory =
-                new KeyStoreKeyFactory(properties.getLocation(), properties.getPassword().toCharArray());
-        return keyStoreKeyFactory.getKeyPair(properties.getAlias(), properties.getPassword().toCharArray());
     }
 }
