@@ -11,9 +11,11 @@ spring:
     import:
       - optional:nacos:${spring.application.name}.yaml
   datasource:
-    url: jdbc:mysql://${hm.db.host}:3306/litemall?useUnicode=true&characterEncoding=UTF-8&autoReconnect=true&serverTimezone=Asia/Shanghai
+    url: jdbc:mysql://${hm.db.host:127.0.0.1}:${hm.db.port:3306}/${hm.db.name:litemall}?useUnicode=true&characterEncoding=UTF-8&autoReconnect=true&serverTimezone=Asia/Shanghai
     driver-class-name: com.mysql.cj.jdbc.Driver
-    username: root
+    # M12/H5：账号不再写死 root，由 HM_DB_USER 注入（默认值仍为 root 以保持现有 dev 可跑）
+    username: ${HM_DB_USER:root}
+    # M12：口令无默认值——dev 由 application-dev.yaml 提供，prod 必须由环境变量 HM_DB_PW 注入
     password: ${hm.db.pw}
   data:
     redis:
@@ -27,7 +29,8 @@ spring:
           min-idle: 0
   cloud:
     nacos:
-      server-addr: 192.168.96.129:8848
+      # M12：中间件地址由环境变量注入；默认值为本环境的 dev 中间件（实测可达），可整体替换以切换环境
+      server-addr: ${HM_NACOS_ADDR:192.168.96.129:8848}
     sentinel:
       enabled: false
       transport:
@@ -48,7 +51,7 @@ seata:
     type: nacos
     nacos:
       application: seata-server
-      server-addr: 192.168.96.129:8848
+      server-addr: ${HM_SEATA_ADDR:192.168.96.129:8848}
       group: SEATA_GROUP
       namespace: ""
       cluster: default
@@ -62,7 +65,8 @@ sentinel:
 
 logging:
   level:
-    com.hmall: debug
+    # M12：清掉历史遗留的错误命名空间（原 logger 名不属于本项目）
+    com.litemall: ${HM_LOG_LEVEL_APP:DEBUG}
   pattern:
     dateformat: HH:mm:ss:SSS
   file:
@@ -78,4 +82,13 @@ hm:
   internal:
     token: ${HM_INTERNAL_TOKEN:}
 
-
+---
+# M12：prod profile 强制连接配置中心（去掉 optional 语义）——Nacos 不可达即启动失败，
+# 避免"以为连了配置中心、实际只用本地 yaml"的静默降级。
+# 若某生产环境确实不使用 Nacos，请显式覆写 SPRING_CONFIG_IMPORT 并在发布评审中说明。
+spring:
+  config:
+    activate:
+      on-profile: prod
+    import:
+      - nacos:${spring.application.name}.yaml

@@ -1,0 +1,13 @@
+# M12：本地开发配置（仅 dev profile 生效）。
+# 生产不得依赖本文件内的任何口令：prod 下这些占位符必须由环境变量注入（缺失即启动失败）。
+# 背景：本模块的 application.yaml 引用了无默认值的 ${hm.db.pw}，此前没有本文件 →
+#       占位符不可解析，admin 在 dev 下无法启动，且因该模块原先 0 测试而未被发现。
+hm:
+  db:
+    host: localhost
+    port: 3306
+    name: litemall
+    pw: 123456
+  redis:
+    host: localhost
+    port: 6379

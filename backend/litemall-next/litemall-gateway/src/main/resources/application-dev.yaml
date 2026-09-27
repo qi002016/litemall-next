@@ -1,0 +1,6 @@
+# M12：本地开发配置（仅 dev profile 生效）。
+# 网关是 WebFlux 应用，无数据源/Redis 依赖，本文件仅用于统一"每个服务都有 dev 落点"的 profile 约定。
+# 注意：令牌私钥库口令 HM_JKS_PASSWORD 刻意不在此处给默认值（H4），dev 也须由环境变量注入。
+logging:
+  level:
+    com.litemall: DEBUG

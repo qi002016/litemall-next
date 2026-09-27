@@ -13,7 +13,8 @@ spring:
       - optional:nacos:${spring.application.name}.yaml
   cloud:
     nacos:
-      server-addr: 192.168.96.129:8848
+      # M12：中间件地址由环境变量注入；默认值为本环境的 dev 中间件（实测可达），可整体替换以切换环境
+      server-addr: ${HM_NACOS_ADDR:192.168.96.129:8848}
       discovery:
         namespace: public
     sentinel:
@@ -79,7 +80,7 @@ seata:
     type: nacos
     nacos:
       application: seata-server
-      server-addr: 192.168.96.129:8848
+      server-addr: ${HM_SEATA_ADDR:192.168.96.129:8848}
       group: SEATA_GROUP
       namespace: ""
       cluster: default
@@ -131,3 +132,14 @@ hm:
       - /app/pay/notify/wechat
       # 管理端登录（白名单）
       - /admin/auth/login
+
+---
+# M12：prod profile 强制连接配置中心（去掉 optional 语义）——Nacos 不可达即启动失败，
+# 避免"以为连了配置中心、实际只用本地 yaml"的静默降级。
+# 若某生产环境确实不使用 Nacos，请显式覆写 SPRING_CONFIG_IMPORT 并在发布评审中说明。
+spring:
+  config:
+    activate:
+      on-profile: prod
+    import:
+      - nacos:${spring.application.name}.yaml

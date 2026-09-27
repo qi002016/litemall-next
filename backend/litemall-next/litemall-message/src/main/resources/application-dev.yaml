@@ -1,0 +1,12 @@
+# M12：本地开发配置（仅 dev profile 生效）。
+# 生产不得依赖本文件内的任何口令：prod 下这些占位符必须由环境变量注入（缺失即启动失败）。
+# 背景：原先 application.yaml 用 ${hm.db.pw:123456} 的明文默认值兜底，本文件取代该兜底。
+hm:
+  db:
+    host: localhost
+    port: 3306
+    name: litemall
+    pw: 123456
+  redis:
+    host: localhost
+    port: 6379
