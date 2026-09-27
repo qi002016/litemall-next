@@ -36,7 +36,7 @@ onMounted(async () => {
   try {
     user.value = (await userInfo()) || {}
     userStore.setUserInfo(user.value)
-  } catch (e) {
+  } catch {
     user.value = userStore.userInfo || {}
   }
 })

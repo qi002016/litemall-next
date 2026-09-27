@@ -16,13 +16,12 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { showSuccessToast, showConfirmDialog } from 'vant'
 import { orderDetail, orderCancel, orderConfirmReceive } from '@/api/order'
 import { payOrder } from '@/utils/pay'
 
 const route = useRoute()
-const router = useRouter()
 const info = ref(null)
 
 const load = async () => {

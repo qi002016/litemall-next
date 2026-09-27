@@ -1,0 +1,71 @@
+# 前端 CI —— litemall-next
+#
+# 覆盖范围：仅 frontend/mobile-web 与 frontend/admin-web 两个 Vue3.5 + Vite8 工程。
+# 说明：本 workflow 不包含后端 Maven 构建（后端 CI 由独立流程负责）。
+#
+# 触发条件：push 与 pull_request（未做 paths 过滤，避免前端改动漏检；
+#           如后续需要按目录收敛，可再补 paths 过滤）。
+name: Frontend CI
+
+on:
+  push:
+  pull_request:
+
+# 同一分支重复推送时取消上一次未完成的运行
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # 与本地验证环境一致（Node 24.9.0 / npm 11.9.0）
+  # 依赖要求：vite 8 需 ^20.19.0 || >=22.12.0；eslint 10 需 ^20.19.0 || ^22.13.0 || >=24
+  NODE_VERSION: '24'
+
+jobs:
+  frontend:
+    name: ${{ matrix.project }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: mobile-web
+            dir: frontend/mobile-web
+          - project: admin-web
+            dir: frontend/admin-web
+
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.dir }}/package-lock.json
+
+      # 两个工程均已提交 package-lock.json，正常走 npm ci；
+      # 若 lock 文件缺失或与 package.json 不同步，则回退 npm install。
+      - name: Install dependencies
+        shell: bash
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci || npm install
+          else
+            npm install
+          fi
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build

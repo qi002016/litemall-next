@@ -21,7 +21,7 @@ const customUpload = async (option) => {
     const res = await uploadFile(option.file)
     emit('update:modelValue', res.url)
     ElMessage.success('上传成功')
-  } catch (e) {
+  } catch {
     ElMessage.error('上传失败')
   }
 }

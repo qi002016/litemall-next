@@ -9,7 +9,7 @@
       <el-button type="primary" @click="reload">查询</el-button>
     </el-form>
 
-    <el-table :data="list" border v-loading="loading">
+    <el-table v-loading="loading" :data="list" border>
       <el-table-column prop="orderSn" label="订单编号" width="200" />
       <el-table-column prop="userId" label="用户ID" width="100" />
       <el-table-column prop="orderAmount" label="金额" width="100" />

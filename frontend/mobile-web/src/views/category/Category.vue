@@ -49,7 +49,7 @@ onMounted(async () => {
   try {
     tree.value = (await categoryTree()) || []
     if (tree.value.length) activeId.value = tree.value[0].id
-  } catch (e) {
+  } catch {
     tree.value = []
   }
 })

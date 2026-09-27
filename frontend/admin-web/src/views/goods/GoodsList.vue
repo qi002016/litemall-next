@@ -8,7 +8,7 @@
       <el-button type="success" @click="openDialog()">新增商品</el-button>
     </el-form>
 
-    <el-table :data="list" border v-loading="loading">
+    <el-table v-loading="loading" :data="list" border>
       <el-table-column prop="id" label="ID" width="80" />
       <el-table-column prop="name" label="商品名称" />
       <el-table-column prop="brief" label="简介" show-overflow-tooltip />

@@ -40,7 +40,7 @@ const history = ref([])
 const loadHistory = async () => {
   try {
     history.value = (await searchHistory()) || []
-  } catch (e) {
+  } catch {
     // 未登录等情况静默隐藏
     history.value = []
   }
@@ -66,7 +66,7 @@ const onClear = () => {
     .then(async () => {
       try {
         await clearHistory()
-      } catch (e) {
+      } catch {
         // 忽略
       }
       history.value = []

@@ -33,7 +33,7 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showConfirmDialog, showSuccessToast, showFailToast } from 'vant'
 import { useUserStore } from '@/store/user'
-import { userInfo, updateUserInfo, updatePassword } from '@/api/user'
+import { updateUserInfo, updatePassword } from '@/api/user'
 
 const router = useRouter()
 const userStore = useUserStore()

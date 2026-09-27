@@ -94,7 +94,7 @@ const onSendCode = async () => {
     await sendCaptcha({ phone: form.mobile, type: 'register' })
     showSuccessToast('验证码已发送')
     startCountdown()
-  } catch (e) {
+  } catch {
     showFailToast('发送失败')
   }
 }

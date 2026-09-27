@@ -7,7 +7,7 @@
       <el-button type="primary" @click="reload">查询</el-button>
     </el-form>
 
-    <el-table :data="list" border v-loading="loading">
+    <el-table v-loading="loading" :data="list" border>
       <el-table-column prop="id" label="ID" width="70" />
       <el-table-column prop="admin" label="管理员" width="120" />
       <el-table-column prop="ip" label="IP" width="140" />

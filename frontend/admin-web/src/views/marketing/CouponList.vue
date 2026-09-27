@@ -8,7 +8,7 @@
       <el-button type="success" @click="openDialog()">新增优惠券</el-button>
     </el-form>
 
-    <el-table :data="list" border v-loading="loading">
+    <el-table v-loading="loading" :data="list" border>
       <el-table-column prop="id" label="ID" width="70" />
       <el-table-column prop="name" label="名称" width="150" />
       <el-table-column prop="tag" label="标签" width="100" />

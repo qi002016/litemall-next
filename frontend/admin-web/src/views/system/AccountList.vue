@@ -8,7 +8,7 @@
       <el-button type="success" @click="openDialog()">新增管理员</el-button>
     </el-form>
 
-    <el-table :data="list" border v-loading="loading">
+    <el-table v-loading="loading" :data="list" border>
       <el-table-column prop="id" label="ID" width="70" />
       <el-table-column prop="username" label="账号" width="160" />
       <el-table-column prop="addTime" label="创建时间" width="180" />

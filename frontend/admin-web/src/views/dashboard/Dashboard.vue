@@ -1,7 +1,7 @@
 <template>
   <div>
     <el-row :gutter="16">
-      <el-col :span="6" v-for="c in cards" :key="c.label">
+      <el-col v-for="c in cards" :key="c.label" :span="6">
         <el-card shadow="hover">
           <div class="num">{{ c.value }}</div>
           <div class="label">{{ c.label }}</div>
@@ -35,7 +35,7 @@ onMounted(async () => {
       { label: '用户总数', value: s.userTotal ?? '--' },
       { label: '待发货', value: s.undelivered ?? '--' },
     ]
-  } catch (e) {
+  } catch {
     /* 未登录或服务未启动时保持占位 */
   }
 })

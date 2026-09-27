@@ -52,7 +52,7 @@ onMounted(async () => {
     list.value.forEach((c) => {
       c.received = receivedIds.has(String(c.id))
     })
-  } catch (e) {
+  } catch {
     // 未登录或查询失败时不影响列表展示
   }
 })

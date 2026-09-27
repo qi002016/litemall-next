@@ -8,7 +8,7 @@
       <el-button type="success" @click="openDialog()">新增专题</el-button>
     </el-form>
 
-    <el-table :data="list" border v-loading="loading">
+    <el-table v-loading="loading" :data="list" border>
       <el-table-column prop="id" label="ID" width="70" />
       <el-table-column label="封面" width="90">
         <template #default="{ row }">
