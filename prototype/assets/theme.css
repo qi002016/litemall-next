@@ -5,10 +5,10 @@
 
 /* ------------------------------ 设计变量 ------------------------------ */
 :root {
-  --brand: #ff5a1f;
-  --brand-dark: #e8451a;
-  --brand-soft: #fff2ec;
-  --price: #ff2e4d;
+  --brand: #ff6a00;
+  --brand-dark: #e85f00;
+  --brand-soft: #fff1e8;
+  --price: #ff2741;
   --ok: #00b578;
   --ok-soft: #e8f9f2;
   --warn: #ff8f1f;
@@ -18,7 +18,7 @@
   --info: #2f54eb;
   --info-soft: #f0f4ff;
 
-  --bg: #f4f5f7;
+  --bg: #f5f5f7;
   --card: #ffffff;
   --text: #14161a;
   --text-2: #5a6270;
@@ -39,7 +39,7 @@ html, body { margin: 0; padding: 0; }
 body {
   font-family: var(--font);
   color: var(--text);
-  background: #e9ecf1;
+  background: #f5f5f7;
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -508,8 +508,13 @@ input, textarea, select { font-family: inherit; font-size: 14px; color: var(--te
   .demo-bar { gap: 8px; padding: 0 10px; }
   .demo-bar .hint { display: none; }
   .stage-c { padding: 0; }
-  .phone { border-radius: 0; max-height: none; min-height: calc(100vh - 52px); max-width: none; }
+  /* 窄屏（手机）整页滚动：取消壳内滚动，让 .c-head 的 sticky 相对视口生效 */
+  .phone { border-radius: 0; max-height: none; min-height: calc(100vh - 52px); max-width: none; overflow: visible; }
   .phone::after { display: none; }
+  .phone-scroll { overflow: visible; }
+  /* 底部 Tab / 动作条改为 sticky 贴视口底部（不再随内容滚走，也不与内容重叠） */
+  .c-tab { position: sticky; bottom: 0; z-index: 60; }
+  .c-actionbar { position: sticky; bottom: 56px; z-index: 59; }
 }
 /* =====================================================================
    手机端界面改版（v3.1）：首页分类横滚条 / 消息入口 / 我的工具区 /
@@ -796,3 +801,185 @@ input, textarea, select { font-family: inherit; font-size: 14px; color: var(--te
 }
 .x-fft .btn { flex: 1; }
 .x-fft .btn.ghost { flex: 0 0 96px; }
+
+/* ============================================================================
+ * 手机端首页改版（t9）：淘宝风格 390×844 + 底部四 Tab（首页 / 消息 / 购物车 / 我的）
+ * ==========================================================================*/
+
+/* ---- 底部 Tab：白底 + 1px 分隔线；未选中灰、选中品牌橙 ---- */
+.c-tab { background: #fff; border-top: 1px solid #ECECEE; }
+.c-tab a { color: #9AA0A6; font-size: 10.5px; gap: 3px; }
+.c-tab a.on { color: var(--brand); font-weight: 600; }
+.c-tab a .x-tab-ic { position: relative; display: flex; line-height: 0; }
+.c-tab a .badge-dot {
+  top: -5px; right: auto; left: 50%; margin-left: 2px; margin-right: 0;
+  min-width: 15px; height: 15px; line-height: 15px; padding: 0 4px; font-size: 10px;
+  background: var(--price);
+}
+
+/* ---- 首页固定头：频道栏 + 搜索栏（sticky 由 .c-head 提供） ---- */
+.x-hhead {
+  height: auto; display: block; padding: 0; gap: 0;
+  background: #fff; border-bottom: 1px solid var(--line);
+  backdrop-filter: none;
+}
+.x-chan {
+  display: flex; align-items: stretch; height: 44px; padding: 0 8px;
+  overflow-x: auto; overflow-y: hidden; background: #fff;
+  -webkit-overflow-scrolling: touch;
+}
+.x-chan::-webkit-scrollbar { height: 0; }
+.x-chan-i {
+  position: relative; flex: 0 0 auto; padding: 0 8px; height: 44px; line-height: 44px;
+  font-size: 13px; color: #6B7280; white-space: nowrap; cursor: pointer;
+}
+.x-chan-i.on { color: #111; font-weight: 700; font-size: 13.5px; }
+.x-chan-i.on::after {
+  content: ""; position: absolute; left: 50%; bottom: 7px; transform: translateX(-50%);
+  width: 16px; height: 3px; border-radius: 2px; background: var(--brand);
+}
+.x-chan-cat {
+  margin-left: auto; flex: 0 0 auto; align-self: center;
+  display: flex; align-items: center; gap: 3px; height: 26px; padding: 0 9px;
+  border-radius: 999px; background: #F5F5F7; color: #4B5563; font-size: 11.5px; cursor: pointer;
+}
+.x-hsearch { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 10px 8px; background: #fff; }
+/* H-04：白色圆角胶囊（原 #F5F5F7 灰底） */
+.x-sbox {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
+  height: 34px; padding: 0 10px; border-radius: 999px; background: #fff; color: #9AA0A6;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .06);
+}
+.x-sbox .x-ico { display: flex; flex: none; cursor: pointer; }
+.x-sbox input {
+  flex: 1; min-width: 0; height: 100%; border: 0; background: transparent;
+  outline: none; font-size: 12.5px; color: #222;
+}
+.x-sbox input::placeholder { color: #A8AEB8; }
+.x-sbtn {
+  flex: none; height: 34px; padding: 0 14px; border: 0; border-radius: 999px;
+  background: var(--brand); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.x-cartbtn { position: relative; flex: none; width: 28px; height: 34px; display: grid; place-items: center; color: #333; cursor: pointer; }
+.x-cartbtn .badge-dot {
+  position: absolute; top: -2px; right: -4px; min-width: 15px; height: 15px; padding: 0 4px;
+  border-radius: 999px; background: var(--price); color: #fff;
+  font-size: 10px; line-height: 15px; text-align: center; font-weight: 700;
+}
+
+/* ---- Banner ---- */
+.x-banner {
+  position: relative; display: flex; align-items: center; gap: 8px;
+  min-height: 132px; padding: 14px; border-radius: 12px; overflow: hidden;
+  color: #fff; cursor: pointer;
+}
+.x-btag {
+  position: absolute; top: 10px; left: 12px; padding: 2px 7px; border-radius: 6px;
+  background: rgba(255, 255, 255, .24); color: #fff; font-size: 10px; line-height: 15px;
+}
+.x-btxt { flex: 1; min-width: 0; padding-top: 18px; }
+.x-bt { font-size: 19px; font-weight: 800; letter-spacing: .3px; line-height: 1.26; }
+.x-bs { margin-top: 5px; font-size: 12px; color: rgba(255, 255, 255, .92); }
+.x-bimg { flex: none; width: 100px; height: 78px; display: grid; place-items: center; }
+.x-bimg svg { width: 100%; height: 100%; }
+/* H-03：指示点叠在 Banner 底部居中（白点必须在橙红底上才可见），白实心 + 半透明白，尺寸统一 6px */
+.x-bwrap { position: relative; }
+.x-bdots { position: absolute; left: 0; right: 0; bottom: 8px; z-index: 2; display: flex; gap: 6px; justify-content: center; }
+.x-bdots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(255, 255, 255, .45); cursor: pointer; }
+.x-bdots i.on { background: #fff; }
+
+/* ---- 提示条（演示模式） ---- */
+.x-notice {
+  display: flex; align-items: center; gap: 7px; margin-top: 10px; padding: 9px 11px;
+  border-radius: 10px; background: #FFF8E6; color: #8A5B00; font-size: 12px;
+}
+.x-notice .x-ico { flex: none; color: #E8A200; }
+.x-notice .grow { min-width: 0; }
+.x-notice .t { flex: none; color: #B08E52; font-size: 11px; }
+
+/* ---- 商品卡（首页 / 列表 / 搜索 / 收藏共用） ---- */
+.x-gcard {
+  background: #fff; border-radius: 12px; overflow: hidden; cursor: pointer;
+  box-shadow: 0 1px 6px rgba(17, 24, 39, .07);
+}
+.x-gpic { position: relative; height: 148px; display: grid; place-items: center; padding: 12px; }
+.x-gpic > svg { width: 100%; height: 100%; }
+.x-gtags {
+  position: absolute; top: 8px; left: 8px; right: 8px; z-index: 2;
+  display: flex; gap: 4px; overflow: hidden;
+}
+.x-gtag {
+  flex: none; padding: 1px 6px; border-radius: 6px; color: #fff;
+  font-size: 10px; line-height: 15px; white-space: nowrap;
+}
+.x-gtag-multi { background: #FF6A00; }
+.x-gtag-hot { background: #FF4D18; }
+.x-gtag-sale { background: #FF2741; }
+.x-gtag-new { background: #FF8A3D; }
+.x-gtag-other { background: #FFA53D; }
+.x-gtag-gray { background: rgba(17, 24, 39, .55); }
+.x-ginfo { padding: 8px 10px 10px; }
+.x-gnm { font-size: 13px; line-height: 1.42; height: 37px; color: #111; overflow: hidden; }
+.x-gmeta { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; margin-top: 6px; }
+.x-gmeta .price { color: var(--price); font-weight: 800; font-size: 17px; }
+.x-gmeta .price .sym { font-size: 12px; }
+.x-gmeta .sales { flex: none; color: #9AA0A6; font-size: 11px; }
+.x-gcard.soldout .x-gpic { filter: grayscale(1) opacity(.72); }
+
+/* ---- 商品缩略图（购物车 / 订单行 / 售后 / 足迹） ---- */
+.x-thumb {
+  flex: none; width: 64px; height: 64px; border-radius: 10px; overflow: hidden;
+  background: #F7F8FA; display: grid; place-items: center; padding: 6px;
+}
+.x-thumb.sm { width: 56px; height: 56px; padding: 5px; }
+.x-thumb.lg { width: 100%; height: 220px; padding: 18px; border-radius: var(--r); }
+.x-thumb svg { width: 100%; height: 100%; }
+
+/* ---- 消息列表：彩色圆形头像 ---- */
+.x-mav { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; color: #fff; }
+.x-mav.order { background: #FF8A3D; }
+.x-mav.aftersale { background: #2F80ED; }
+.x-mav.coupon { background: #FF2741; }
+.x-mav.system { background: #8A94A6; }
+
+/* ---- 我的：身份卡头像 ---- */
+.x-mavatar {
+  width: 56px; height: 56px; border-radius: 50%; flex: none;
+  background: rgba(255, 255, 255, .26); display: grid; place-items: center; color: #fff;
+}
+
+/* ---- 空态图标改为 SVG ---- */
+.empty .ico { font-size: 0; line-height: 0; color: #C4CBD6; }
+
+/* =====================================================================
+   窄屏吸顶让位演示顶栏（H-01 / t13）
+   ---------------------------------------------------------------------
+   窄屏（≤640px）下手机舞台是整页滚动（`.phone-scroll{overflow:visible}`），真正滚动的是
+   `document.scrollingElement`；而 `.demo-bar` 是 `sticky top:0 / z-index:900`，常驻 0..52。
+   此时 `.c-head{top:0}` 会贴到视口顶，被演示顶栏盖住 52px（详情页返回键 rect 9..39 完全落在
+   顶栏下，看不见也点不到）。
+
+   这里把手机端所有吸顶元素的 top 整体下移 52px，让头部贴在演示顶栏下沿：
+   - `.c-head`（通用头，高 48；首页 `.x-hhead` 变体高 89）→ 52；
+   - 紧随其后的吸顶条按「52 + 头部高 48」顺延到 100：订单页状态分栏 `.tabs-scroll`、
+     列表页筛选条 `.x-listbar`（两处原本都是 top:48px，基准是窄屏之外的贴顶头部）。
+
+   只在 `≤640px` 生效：宽屏预览时手机是固定画框、由 `.phone-scroll` 内滚，头部 sticky 相对
+   画框顶部贴齐；若宽屏也加这 52px，画框内会凭空多出一道 52px 的空隙。
+   `.c-tab` / `.c-actionbar` 的 `sticky bottom` 与 `.x-bwrap` 指示点叠层均不受此规则影响。
+   ===================================================================== */
+@media (max-width: 640px) {
+  .c-head { top: 52px; }
+  .tabs-scroll { top: 100px; }
+  .x-listbar { top: 100px; }
+
+  /* 演示顶栏在窄屏会被挤到换行：`.seg button` 原本 padding 6px 16px，flex 收缩后
+     「手机端/后台」逐字折行，整条 .seg 长到 69px，从 52px 高的 .demo-bar 里溢出到 -8..61，
+     于是 .c-head 虽然 top:52 仍被它压住 9px。这里统一「不许换行 + 不参与收缩」，
+     并把字号/内边距压到 390px 能一行放下（实测总宽 386/390）。 */
+  .demo-bar { gap: 6px; padding: 0 8px; }
+  .demo-bar .brand { flex: none; white-space: nowrap; max-width: 92px; overflow: hidden; text-overflow: ellipsis; }
+  .demo-bar .seg { flex: none; }
+  .demo-bar .seg button { flex: none; white-space: nowrap; padding: 6px 10px; font-size: 12px; }
+  .demo-bar .demo-btn { flex: none; white-space: nowrap; padding: 6px 8px; font-size: 11.5px; }
+}

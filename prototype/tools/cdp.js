@@ -30,10 +30,14 @@ async function freePort() {
 async function launch() {
   const profile = path.join(os.tmpdir(), 'verify-cdp-' + Date.now());
   const PORT = await freePort();
+  /* CDP_VIEWPORT=390x844 可切换手机视口（默认 420x900，历史脚本按 420 校准过） */
+  const VP = (process.env.CDP_VIEWPORT || '420x900').split('x');
+  const W = parseInt(VP[0], 10) || 420;
+  const H = parseInt(VP[1], 10) || 900;
   const child = spawn(CHROME, [
     '--headless=new', '--disable-gpu', '--no-sandbox', '--no-first-run',
     '--remote-debugging-port=' + PORT, '--user-data-dir=' + profile,
-    '--window-size=420,900', 'about:blank'
+    '--window-size=' + W + ',' + H, 'about:blank'
   ], { stdio: 'ignore' });
   const cleanup = () => { try { child.kill(); } catch (e) {} };
   for (let i = 0; i < 100; i++) {
@@ -42,7 +46,7 @@ async function launch() {
       if (r.ok) {
         const list = await r.json();
         const page = list.find(t => t.type === 'page');
-        if (page) return { child, profile, wsUrl: page.webSocketDebuggerUrl, port: PORT };
+        if (page) return { child, profile, wsUrl: page.webSocketDebuggerUrl, port: PORT, w: W, h: H };
       }
     } catch (e) { /* not up yet */ }
     await sleep(150);
@@ -157,11 +161,17 @@ class Page {
 }
 
 async function open() {
-  const { child, profile, wsUrl } = await launch();
+  const { child, profile, wsUrl, w, h } = await launch();
   const ws = new WebSocket(wsUrl);
   await new Promise((res, rej) => { ws.addEventListener('open', res); ws.addEventListener('error', rej); });
   const page = new Page(ws);
   await page.init();
+  /* --window-size 在 headless=new 下不保证等于视口，这里显式覆盖，使 CDP_VIEWPORT 真正生效 */
+  try {
+    await page.send('Emulation.setDeviceMetricsOverride', {
+      width: w, height: h, deviceScaleFactor: 1, mobile: true
+    });
+  } catch (e) { /* 老版本 CDP 不支持时退回窗口尺寸 */ }
   page.close = async () => { try { ws.close(); } catch (e) {} try { child.kill(); } catch (e) {} };
   return page;
 }

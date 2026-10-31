@@ -113,7 +113,15 @@
       { id: 'g15', name: '纯棉中筒袜 3 双装', brief: '吸汗不臭脚', catId: 'c12', brandId: 'b1', onSale: true, sales: 1820, rate: 97, tags: [], pics: ['#BFBFBF', '🧦'], detail: '材质：精梳棉 78%；尺码：均码 38–44。',
         skus: [{ id: 'g15-1', specs: { '组合': '黑白灰各一' }, price: 3900, number: 18 }] },
       { id: 'g16', name: '收纳分隔抽屉盒（下架示例）', brief: '该商品已下架，用于演示"已下架"态', catId: 'c24', brandId: 'b6', onSale: false, sales: 120, rate: 90, tags: [], pics: ['#D9D9D9', '📦'], detail: '已下架商品：C 端列表与详情不可访问。',
-        skus: [{ id: 'g16-1', specs: { '规格': '中号' }, price: 3600, number: 5 }] }
+        skus: [{ id: 'g16-1', specs: { '规格': '中号' }, price: 3600, number: 5 }] },
+      { id: 'g17', name: '丝绒雾面口红 3.5g', brief: '一抹显白，持妆 8 小时', catId: 'c61', brandId: 'b6', onSale: true, sales: 2140, rate: 97, tags: ['多规格', '爆款'], pics: ['#FF4D6D', '💄'], detail: '质地：丝绒雾面；净含量：3.5g；色号见规格。',
+        skus: [
+          { id: 'g17-1', specs: { '色号': '#01 干枯玫瑰' }, price: 8900, number: 16 },
+          { id: 'g17-2', specs: { '色号': '#02 复古砖红' }, price: 8900, number: 9 },
+          { id: 'g17-3', specs: { '色号': '#03 元气豆沙' }, price: 8900, number: 0 }
+        ] },
+      { id: 'g18', name: '氨基酸洁面慕斯 150ml', brief: '弱酸性温和，敏感肌可用', catId: 'c62', brandId: 'b6', onSale: true, sales: 960, rate: 98, tags: ['新品'], pics: ['#69C0FF', '🧴'], detail: '表活：氨基酸；pH 值：5.5–6.0；净含量：150ml。',
+        skus: [{ id: 'g18-1', specs: { '规格': '150ml' }, price: 5900, number: 22 }] }
     ];
   }
 
@@ -125,6 +133,9 @@
       { id: 'c3', name: '数码', parentId: null, sort: 3 },
       { id: 'c4', name: '食品', parentId: null, sort: 4 },
       { id: 'c5', name: '运动', parentId: null, sort: 5 },
+      { id: 'c6', name: '美妆', parentId: null, sort: 6 },
+      { id: 'c61', name: '彩妆', parentId: 'c6', sort: 1 },
+      { id: 'c62', name: '护肤', parentId: 'c6', sort: 2 },
       { id: 'c11', name: '上装', parentId: 'c1', sort: 1 },
       { id: 'c12', name: '下装', parentId: 'c1', sort: 2 },
       { id: 'c13', name: '鞋靴', parentId: 'c1', sort: 3 },
@@ -159,9 +170,9 @@
       brands: brands,
       goods: seedGoods(),
       banners: [
-        { id: 'bn1', title: '秋冬上新 低至 5 折', sub: '重磅卫衣 / 直筒牛仔', bg: 'linear-gradient(135deg,#FF7A45,#FF2D55)', emoji: '🧥', link: { type: 'cat', id: 'c11' } },
-        { id: 'bn2', title: '咖啡茶饮 满 99 减 30', sub: '领券下单更划算', bg: 'linear-gradient(135deg,#8C5A3B,#4E342E)', emoji: '☕', link: { type: 'coupon' } },
-        { id: 'bn3', title: '数码好物 新品首发', sub: '降噪耳机 / 客制化键盘', bg: 'linear-gradient(135deg,#2F54EB,#722ED1)', emoji: '🎧', link: { type: 'cat', id: 'c3' } }
+        { id: 'bn1', title: '咖啡茶饮 满 99 减 30', sub: '领券下单更划算', bg: 'linear-gradient(120deg,#FF7A18,#FF4D4D)', emoji: '☕', illus: 'coffee', tag: '限时特惠', link: { type: 'coupon' } },
+        { id: 'bn2', title: '秋冬上新 低至 5 折', sub: '重磅卫衣 / 直筒牛仔', bg: 'linear-gradient(120deg,#FF8A3D,#FF5A5F)', emoji: '🧥', illus: 'g1', tag: '新品上市', link: { type: 'cat', id: 'c11' } },
+        { id: 'bn3', title: '数码好物 新品首发', sub: '降噪耳机 / 客制化键盘', bg: 'linear-gradient(120deg,#FF7A18,#FF4D4D)', emoji: '🎧', illus: 'g7', tag: '限时特惠', link: { type: 'cat', id: 'c3' } }
       ],
       topics: [
         { id: 'tp1', title: '通勤一周穿搭', desc: '5 件单品搭出 7 天不重样', emoji: '👔', goodsIds: ['g1', 'g3', 'g11'] },

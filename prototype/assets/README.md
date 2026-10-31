@@ -51,7 +51,7 @@ window.ADMIN_ROUTES = [{ path: 'dashboard', render(ctx) {...} }, ...];
 render(ctx) => {
   html,        // 必填：整屏 HTML（手机端必须含 UI.cHeader(...)）
   action,      // 可选：底部固定动作条 HTML，渲染在手机壳内、Tab 栏之上
-  tab,         // 可选：'home' | 'category' | 'cart' | 'me'，用于高亮底部 Tab；不返回 = 不显示 Tab 栏
+  tab,         // 可选：'home' | 'messages' | 'cart' | 'me'，用于高亮底部 Tab；不返回 = 不显示 Tab 栏
   title,       // 可选：后台顶栏标题（后台屏用）
   mount(root, ctx),  // 可选：挂事件。把 root 内元素绑好；也可返回一个 cleanup 函数
   onUnmount(),       // 可选：同 mount 的返回值，二选一即可
@@ -85,14 +85,14 @@ render(ctx) => {
 ### 2.6 全局壳层
 
 - **演示顶栏**：品牌「小满商城 · 交互原型」+ 分段控件「手机端 / 后台」（跳 `#/c/home` / `#/admin/dashboard`）+「重置演示数据」+「演示工具」（跳 `#/admin/demo`）。
-- **手机端底部 Tab**：固定 4 项 首页 / 分类 / 购物车（数量角标）/ 我的。**没有 AI 助手入口**（需求裁定 R1–R3 期间隐藏）。
+- **手机端底部 Tab**（t9 起）：固定 4 项 **首页 / 消息 / 购物车 / 我的**（原来的「分类」Tab 已由消息 Tab 取代；分类唯一入口改为首页频道栏末尾的「分类」胶囊 → `#/c/category`）。消息 Tab 带未读红点（`Store.unreadCount()`，>99 显示 `99+`），购物车 Tab 带件数角标（`Store.cartCount()`，0 不显示）。**没有 AI 助手入口**（需求裁定 R1–R3 期间隐藏）。
 - **后台**：`.admin > .aside`（9 项菜单，售后带待处理角标 `Store.stats().pendingAs`）+ `.admin-main`（`.admin-head` 显示 `title` +「我是运营 / 客服（演示身份）」+ 返回手机端按钮，`.admin-body` 渲染屏幕）。`#/admin/login` 例外：不渲染侧栏，整屏居中登录卡。
 
 ## 3. 手机端 21 屏清单（17 主流程 + 4 屏界面改版新增）
 
 | # | 路由 | 屏幕 | 需求编号 | 说明 |
 | --- | --- | --- | --- | --- |
-| 1 | `#/c/home` | 首页 | 5.2 导购 / BR-GOODS-05、08、10 | 一级分类横滚条（emoji + 名称 + 末项「全部分类 ›」）、品牌搜索条、3 张可点轮播+指示点、公告条、消息入口卡（最新 1 条摘要 + 未读气泡 + 查看全部）、推荐瀑布（`.goods-grid`）；下架不出现，全售罄标「暂时缺货」。原 5 宫格已按 t5 改版移除 |
+| 1 | `#/c/home` | 首页（t9 淘宝式改版） | 5.2 导购 / BR-GOODS-05、08、10 | 固定头（sticky）= 白色频道栏（推荐/服饰/家居/食品/运动/美妆/数码，选中黑粗 + 橙色 16×3px 下划线；末项「分类」胶囊 → `#/c/category`）+ 白胶囊搜索栏（左扫码 / 右相机 / 橙色「搜索」按钮 / 购物车图标带角标）；主体 = 3 张渐变 Banner 轮播（半透明 tag + 大标题 + 副标 + 内联 SVG 插图 + 3 个指示点，4s 自动播）+ 提示条（`notice.text`，`#FFF8E6` 底 + 灯泡 SVG + `UI.fromNow`）+「为你推荐」两列商品卡 + 到底标注；下架不出现，全售罄标「暂时缺货」 |
 | 2 | `#/c/search` | 搜索 | BR-SEARCH-01~03、07 | 输入框 + 热门词 + 历史词（localStorage `proto-search-history`，最多 8 条，可清空）；提交跳 `#/c/list?kw=` |
 | 3 | `#/c/category` | 分类 | 5.2 | 左侧一级竖排 + 右侧二级网格，点击进 `#/c/list?catId=` |
 | 4 | `#/c/list?kw=&catId=&brandId=&onlyStock=&sort=&minP=&maxP=` | 列表（淘宝式） | BR-SEARCH-01/03/04/05、BR-GOODS-05 | 两列商品网格 + 顶部横滚 chips（综合 / 销量 / 价格↑↓（点两次切换）/ 上新 / 仅看有货）+ 右侧固定「筛选」按钮（有生效条件时高亮并显示个数）；点筛选弹底部 `.sheet`：价格区间（两个输入框 + 0-50/50-100/100-200/200 以上快捷档）、一级分类 chips 单选、8 个品牌 chips 单选、仅看有货开关，底部「重置 / 查看 N 件商品」N 随草稿实时变化；应用后写回 URL；上下限填反自动交换并提示（BR-SEARCH-05）；空结果 `.empty` + 清除筛选 |
@@ -167,9 +167,9 @@ render(ctx) => {
 9. **下架商品在 C 端不可见**：`Store.goodsList` 只返回 `onSale`，所以首页/搜索/列表拿不到 `g16`（符合 BR-GOODS-08）；购物车通过 `cartLines().invalid === '已下架'` 展示失效区。
 10. **券面额用 `UI.yuan`**：券卡片的大号面额是 22px 的 `.x-price-in`，用 `¥` + `UI.yuan()` 拼装，因为 `.price` 的字号层级不匹配券面视觉；**其余所有金额仍是 `UI.price()`**。
 11. **客服 / 收藏 / 提醒发货**：需求未定义交互，统一 `UI.toast('演示原型：xxx暂未实现')` 占位，不做假页面。
-12. **图片资源**：零依赖，所有商品图/轮播图用渐变背景 + emoji 占位（`pics:[bg, emoji]`、`banners[].bg/emoji`）。
+12. **图片资源**：零依赖。t9 起商品图统一走 `assets/thumbs.js`（`THUMBS.of(goodsId)` 返回内联 SVG，白底渐变），轮播插图用 `banners[].illus` 经 `illusOf()` 内联 SVG；`store.js` 里 `pics:[bg, emoji]` 的 emoji 仍在数据中，但**页面不再渲染任何 emoji 字符**（t9 硬要求）。
 13. **AI 助手入口**：按需求裁定 R1–R3 期间隐藏，全站不出现。
-14. **一级分类无 emoji 字段**：`Store.state.cats` 只有 `{id,name,parentId,sort}`，首页横滚条用 `app.js` 的 `CAT_EMOJI`（`c1..c5` → 👕🏠🎧☕🏃）按 id 映射，未知一级分类回退 🛍️；分类顺序沿用 `sort` 升序。
+14. **一级分类无 emoji / 图标字段**：`Store.state.cats` 只有 `{id,name,parentId,sort}`；t9 起首页不再用分类图标（t5 的 `CAT_EMOJI` 映射已删除），频道栏文案与顺序在 `app.js` 的 `HOME_CHANNELS` 常量里写死（推荐 / 服饰 / 家居 / 食品 / 运动 / 美妆 / 数码 → null / c1 / c2 / c4 / c5 / c6 / c3）。分类页仍按 `sort` 升序读 `cats`。
 15. **品牌无商品数字段**：`Store.state.brands` 只有 `{id,name}`，「在售 N 件」由页面自算 `goods.filter(g => g.brandId===b.id && g.onSale).length`。
 16. **销量排序 / 品牌过滤 / 仅看有货无 API**：`Store.goodsList` 只支持 `default|priceAsc|priceDesc|new`（BR-SEARCH-04 只要求按展示价排序），所以 `sort=sales` 在页面侧按 `g.sales` 降序后置排序，`brandId` 用 `g.brandId` 后置过滤、`onlyStock` 用 `Store.totalStock(g) > 0` 后置过滤；三者都不改 `store.js`，也不写入 Store 状态（刷新/返回靠 URL 保持）。
 17. **消息 / 收藏 / 关注 / 足迹是演示增强**：需求文档 v3 无对应 BR，数据都在 `Store` 里但不进入订单/售后/库存状态机；消息 `href` 为空串时只标已读不跳转。
@@ -225,7 +225,7 @@ node tools/seed-check.js    # 种子订单超时判定
 node tools/store-fix-check.js  # 数据层 22 项
 ```
 
-最近一次结果：`node --check` 四个 assets 文件全通过；21 个 C 屏截图全部生成（最小 28KB，无 1KB 级空白页）；`tools/scan.js` 31 路由空屏 0 / 可疑文案 0 / 横向溢出 0；`tools/r1.js` 15/15（console.error=0，未捕获异常=0）；`tools/fix-check.js` 7/7；`tools/store-fix-check.js` PASS 22 / FAIL 0。
+最近一次结果（t9 交付时实测）：`node --check` 5 个 assets 文件全通过（store / ui / app / thumbs / admin-screens）；21 个 C 屏截图全部生成（最小 19KB，无 1KB 级空白页）；`tools/scan.js` 31 路由空屏 0 / 可疑文案 0 / 横向溢出 0；`tools/r1.js` 15/15（console.error=0，未捕获异常=0）；`tools/fix-check.js` 7/7；`tools/store-fix-check.js` PASS 22 / FAIL 0；`tools/seed-check.js` 未付款 3 笔（可付 2 / 超时 1）。t9 的 390×844 专项断言 `.shots/t9-check.js` 40/40、`.shots/t9-extra.js` 6/6。
 
 截图目录 `prototype/.shots/` 只是自检产物，**不入库**。
 
@@ -241,6 +241,8 @@ node tools/store-fix-check.js  # 数据层 22 项
 
 复验总账：`node --check` 四文件全通过；`node .shots/verify/r1.js` 15/15；`node .shots/verify/fix-check.js` 7/7；`node .shots/verify/scan.js` 27 路由空屏 0 / 可疑文案 0 / 横向溢出 0；`node .shots/store-fix-check.js` PASS 22 / FAIL 0。截图见 `.shots/fix-admin-orders-close.png`、`fix-c-goods-spec.png`、`fix-c-pay-expired.png`。
 ## 10. 界面改版 v3.1（t5）落点
+
+> 说明：本节记录 t5 当时的落点，作为历史留档。其中「首页一级分类横滚条」「消息入口卡」「Tab 里放分类」等已在 t9 被替换（见第 11 节），行号以 t5 版本为准。
 
 手机端 5 项界面改版，只动 `assets/app.js` + `assets/theme.css` 新增类 + 本文件；`store.js / ui.js / index.html / tools/**` 未改（数据侧 API 由 captain 先行扩好）。
 
@@ -264,6 +266,160 @@ node tools/store-fix-check.js  # 数据层 22 项
 #/c/review?orderId=o114  #/c/coupons  #/c/address  #/c/messages  #/c/favorites  #/c/follows  #/c/footprints
 ```
 
-无返回键（底部 Tab 导航，符合设计）：`#/c/home`、`#/c/category`、`#/c/cart`、`#/c/me`。例外：商品详情只有底部动作条、没有 Tab 栏，但有返回键。
+无返回键（底部 Tab 导航，符合设计）：`#/c/home`、`#/c/messages`、`#/c/cart`、`#/c/me`（t9 起「分类」不再是 Tab 主屏，`#/c/category` 由首页胶囊进入，**有**返回键）。例外：商品详情只有底部动作条、没有 Tab 栏，但有返回键。
 
 真点击验收（CDP 真点，32/32 通过，`console.error=0`、未捕获异常 `0`）：横滚条 6 项且 `overflow=0`、消息气泡 3 → 点单条已读并跳 `#/c/orders?tab=shipped` → 全部已读归零、收藏 3 → 取消剩 2、关注页 8 品牌切换、足迹 8 条分组 → 清空为空态、详情收藏两态、列表 chips 五种状态 + 价格↑↓ + 销量降序（5310 > 3821）+ 仅看有货 14 件 + 筛选 sheet 应用后 URL 带 `catId/brandId/onlyStock/minP/maxP` 命中 2 件 + 上下限交换提示。
+
+## 11. 首页改版与四 Tab（t9）
+
+### 11.1 改动落点（`prototype/assets/app.js`，t9 后 3080 行）
+
+| 小节 | 位置 | 说明 |
+| --- | --- | --- |
+| 底部四 Tab | `app.js:183` `C_TABS` / `:190` `cTabBar()` | Tab 由「首页 / 分类 / 购物车 / 我的」改为「首页 / **消息** / 购物车 / 我的」；图标外包 `.x-tab-ic`，消息未读走 `Store.unreadCount()`、购物车件数走 `Store.cartCount()`（0 不显示角标） |
+| 内联图标与缩略图 | `app.js:484` `SVG_SCAN` / `SVG_CAM` / `SVG_BULB`、`:489` `illusOf()`、`:493` `goodsThumb()`、`:503` `emp()`、`:515` `starSVG()`、`:520` `starsRow()` | 扫码 / 相机 / 灯泡用内联 SVG；商品图统一 `THUMBS.of(id)`；空态 `emp()` 用 `UI.icon` 图标（替换原 emoji 入参）；星级用 SVG，不再用 `★` |
+| 商品卡 | `app.js:528` `goodsCard()` | 白卡 12px 圆角 + 轻投影；图区 `goodsThumb` + 左上标签（`goods.tags` 最多 2 个，`.x-gtag-multi/hot/sale/new/other/gray`）；名称 13px 两行截断；价格 `--price` 红粗（`¥` 小号）；右侧「已售 N」。首页 / 列表 / 搜索 / 收藏共用 |
+| 首页频道栏 + 搜索栏 | `app.js:680` `HOME_CHANNELS` / `:689` `homeChannels()` / `:697` `homeSearchBar()` | 顺序固定 推荐/服饰/家居/食品/运动/美妆/数码 → null/c1/c2/c4/c5/c6/c3；选中黑粗 + 橙色 16×3px 下划线；末项「分类」胶囊（`UI.icon('grid')`）→ `#/c/category`，是**唯一分类入口**。搜索栏杆位含扫码、输入框 `#home-kw`（`data-enter="homeSearch"`）、相机、橙色「搜索」按钮、购物车图标 + 件数角标 |
+| 首页整屏 | `app.js:720` 起（`path: 'home'`）→ `:730` Banner、`:733` 指示点、`:737` 提示条、`:740` 为你推荐、`:742` `.goods-grid`、`:743` 到底标注、`:746` `tab:'home'` | 频道栏 + 搜索栏放进 `.c-head.x-hhead` 实现 sticky；Banner 4s 自动轮播（`mount` 里 setInterval，`render` 会清定时器）；点指示点手动切换；`.x-notice` 提示条保留 `notice.text` |
+| 消息屏 | `app.js:785` 起 | 彩色圆形头像 `.x-mav.<type>`（order 橙 / aftersale 蓝 / coupon 红 / system 灰，头像内类型图标）+ 5 类 tab（带未读数）+ 未读红点 + `otab` / `readAll` / `open` 三个 demo action；t9 起有 `tab: 'messages'` 与 `noBack: true`（是 Tab 主屏） |
+| 我的 | `app.js:2655` `x-tools` 4 格工具区、`:2668` `.x-mavatar` 头像 | 头像由 emoji 换成 `UI.icon('user',28)`；关注店铺图标换 `UI.icon('shop',20)`；4 格工具区（收藏 / 关注店铺 / 足迹 / 我的优惠券）沿用 t5 |
+| 商品详情大图 | `app.js:1284` | 原 `.thumb.lg` + `pics[1]` emoji → `goodsThumb(g.id,'lg')` |
+| 分类页 | `app.js` `path: 'category'` | 去掉 `tab:'category'`（分类已不是 Tab 主屏），恢复返回键；二级分类 emoji 改 `UI.icon` |
+
+### 11.2 新增 CSS（`theme.css`，只在文件末尾 append，既有类零修改）
+
+`--brand:#ff6a00 / --brand-dark / --brand-soft`、`--price:#ff2741`、`--bg:#f5f5f7`；`.c-tab`（白底 + 1px 灰线 + 选中橙）、`.c-tab a .x-tab-ic`、`.x-hhead`、`.x-chan / .x-chan-i(.on) / .x-chan-cat`、`.x-hsearch / .x-sbox / .x-sbtn / .x-cartbtn`、`.x-banner / .x-btag / .x-btxt / .x-bt / .x-bs / .x-bimg / .x-bwrap / .x-bdots`（`.x-bdots` 的最终样式见 §12 H-03：白实心 + 半透明白、统一 6px）、`.x-notice`、`.x-gcard / .x-gpic / .x-gtags / .x-gtag-{multi,hot,sale,new,other,gray} / .x-ginfo / .x-gnm / .x-gmeta`、`.x-thumb(.sm/.lg)`、`.x-mav.{order,aftersale,coupon,system}`、`.x-mavatar`、`.empty .ico`。
+
+窄屏（≤640px，`theme.css` 的 `@media (max-width: 640px)` 块内追加）改为**整页滚动 + sticky 底栏**，让 `.c-head` 的 `position: sticky` 相对视口生效：`.phone / .phone-scroll { overflow: visible }`、`.c-tab { position: sticky; bottom: 0 }`、`.c-actionbar { position: sticky; bottom: 56px }`。
+
+同时 `index.html` 里 `.phone .c-page` 的 `overflow-x: hidden` 改为 `overflow-x: clip` —— `hidden` 会把另一轴的 `visible` 计算成 `auto`，使 `.c-page` 变成 scrollport，从而让 `.c-head` 的 sticky 整个失效（这是 t9 排查到的一个隐藏坑，改动已附注释）。
+
+### 11.3 t9 自检（真实输出）
+
+```text
+node --check assets/{store,ui,app,thumbs,admin-screens}.js      → 5/5 通过
+node tools/scan.js              → 31 路由：空屏 0 / 可疑文案 0 / 横向溢出 0
+node tools/r1.js                → 15/15 通过；console.error=0；未捕获异常=0
+node tools/fix-check.js         → 7/7 通过
+node tools/store-fix-check.js   → PASS 22 / FAIL 0
+node tools/seed-check.js        → 未付款 3 笔（可付 2 / 超时 1）
+CDP_VIEWPORT=390x844 node .shots/t9-check.js   → 40 passed, 0 failed
+CDP_VIEWPORT=390x844 node .shots/t9-extra.js   → 6 passed, 0 failed
+```
+
+`t9-check.js` 覆盖：频道栏 7 项文案与顺序、选中项 `font-weight:700` + `rgb(17,17,17)` + `::after 16×3px rgb(255,106,0)`、搜索按钮 `rgb(255,106,0)`、`body` `rgb(245,245,247)`、价格 `rgb(255,39,65)`、商品卡圆角 12px、底部 Tab 文案「首页/消息/购物车/我的」+ 未读角标、Banner 结构（tag / 标题 / 副标 / SVG / 3 点 / 渐变）+ 点指示点切换、提示条底色、首页零 emoji（正则类 `[\u{1F300}-\u{1FAFF}\u2600-\u27BF\u{2B00}-\u{2BFF}\uFE0F]` 命中 0）、滚动 600px 后频道栏 `top=0` 且内容不与固定头重叠（gap=0）、四 Tab 点击后 hash 与高亮一致、消息屏彩色头像、列表/详情零 emoji + SVG 图、5 条主路径横向溢出 0。
+
+截图（390×844，`.shots/`，不入库）：`t9-home-top.png` 106KB、`t9-home-scrolled.png` 100KB、`t9-messages.png` 54KB、`t9-cart.png` 19KB（空车态）、`t9-cart-filled.png` 45KB、`t9-me.png` 69KB、`t9-list.png` 109KB、`t9-goods.png` 46KB。
+
+### 11.4 t9 相关取舍 / 遗留
+
+1. **分类不再是 Tab**：需求要求底部四 Tab 为「首页 / 消息 / 购物车 / 我的」，分类降级为首页频道栏末尾胶囊（唯一入口）；`#/c/category` 路由保留、有返回键。
+2. **Banner 一次只渲染 1 张**：轮播用同一容器换内容 + 3 个指示点（符合「3 张可点轮播 + 指示点」），点击整块按 `bannerHref()` 跳分类或领券页。
+3. **`store.js` 的 `pics:[bg,emoji]` 仍在数据里**：按约定不改数据层，页面层不再渲染该 emoji；如需彻底清理应由数据层负责人处理。
+4. **频道栏映射写死在 `app.js` 的 `HOME_CHANNELS`**：新增一级分类时需同步这张表（未列入的分类不会出现在首页频道栏，但仍可在分类页与列表页访问）。
+5. **`.c-actionbar` 与 `.c-tab` 同时存在时**（购物车屏）：窄屏下 actionbar 固定在 `bottom:56px`，Tab 在 `bottom:0`，二者不重叠，已用 390×844 截图人工核对。
+## 12. 首页改版缺陷修复（VERIFY-HOME-v3，t11）
+
+对照 `prototype/VERIFY-HOME-v3.md`（H-01 ~ H-06）的处置与落点，证据均为真实运行输出。
+
+| 编号 | 结论 | 修法 | 落点 |
+| --- | --- | --- | --- |
+| H-01 | **不改**（captain 裁定：`.demo-bar` 是演示 harness 控件条必须常驻；head sticky 属设计） | 未改动任何 `position/z-index/top`；曾加的 `@media(max-width:640px){.demo-bar{position:static}}` 已回滚到 t9 交付状态 | `theme.css:508`（media 块与 t9 一致） |
+| H-02 | 必修，已修 | `each()` 改为 `Array.prototype.forEach.call(list \|\| [], fn)`，全站一处修好（`dots.children` 是 HTMLCollection，原本无 `forEach` → 每 4s 抛 `TypeError`） | `app.js:47-48` |
+| H-03 | 必修，已修 | 指示点改为纯白系：off `rgba(255,255,255,.45)` / on `#fff` 实心，尺寸统一 6×6px 圆点（去掉橙色 `var(--brand)` 与 14px 胶囊）；点叠在 Banner **底部内侧**才在橙红底上可见 → 新增 `.x-bwrap` 包裹层，`.x-bdots` 绝对定位 `bottom:8px` 居中 | `theme.css:886-889`、`app.js:732-737`（Banner + 指示点同包一层 `.x-bwrap`） |
+| H-04 | 必修，已修 | 搜索胶囊 `.x-sbox` 背景 `#F5F5F7` → `#fff`（input 仍透明），补 1px 内描边保证白底可分 | `theme.css:847-852` |
+| H-05 | 必修，已修 | 「我的」补「客服」入口：HEAD 右侧 `UI.icon('comment')` + 「客服」文字，cell 列表「我的售后」之后加一行「客服 / 在线客服 9:00–21:00」；两处共用 `data-act="service"`，行为是占位 `toast('客服为占位入口（需求未定义会话能力）')`（与商品详情尾部客服同一口径，未新增业务模块） | `app.js:2668-2671`、`app.js:2709-2711`、`app.js:2732-2734` |
+| H-06 | 不处理 | `M prototype/tools/cdp.js` 是 captain 的 `CDP_VIEWPORT` 视口支持，归 captain 提交，`tools/**` 本次未改 | — |
+
+`theme.css:886` 的 `.x-bdots` 现为 `.x-bwrap` 内的绝对定位层：**指示点不在 `.x-banner` 内部**，因此 Banner 的 `mount` 里 `el.innerHTML = bannerHTML(b)` 重绘不会抹掉指示点，点击指示点也不会冒泡触发 Banner 的 `data-go` 跳转。
+
+### 12.1 t11 自检（真实输出，390×844 手机视口）
+
+```text
+node --check assets/{store,ui,app,thumbs,admin-screens}.js   → 5/5 通过
+node tools/scan.js                       → 31 路由：空屏 0 / 可疑文案 0 / 横向溢出 0
+CDP_VIEWPORT=390x844 node tools/scan.js  → 同上，全绿
+node tools/r1.js                         → 15/15 通过；console.error=0；未捕获异常=0
+node tools/fix-check.js                  → 7/7 通过（P-01/P-02/P-03/P-04/P-04b/P-04c + 200ms 用例）
+node tools/store-fix-check.js            → PASS 22 / FAIL 0
+node tools/seed-check.js                 → 未付款 3 笔（可付 2 / 超时 1）
+CDP_VIEWPORT=390x844 node .shots/t11-check.js → 9/9 通过（.shots 为自检产物，不入库）
+CDP_VIEWPORT=390x844 node .shots/t9-check.js → 40 passed, 0 failed（H-02/H-03 改动后回归）
+CDP_VIEWPORT=390x844 node .shots/t9-extra.js → 6 passed, 0 failed（回归）
+```
+
+`t11-check.js` 断言内容：等 9.2s 后无未捕获异常且 `.on` 下标从 0 走到 2（H-02 轮播不再抛错）、点第 3 个指示点 → 第 3 个 `on`；指示点 1 个 `rgb(255,255,255)` + 2 个 `rgba(255,255,255,.45)`、统一 6×6px、`bottom` 落在 Banner 内且中心命中 `.x-bdots`（H-03）；`.x-sbox` 背景 `rgb(255,255,255)`（H-04）；「我的」`data-act="service"` 命中 2 处（HEAD + cell）且点击出「客服为占位入口」toast（H-05）；`page.errors=[]`、`page.consoleErrors=[]`。
+
+截图（390×844，`.shots/`，不入库）：`t11-home-390.png` 109KB、`t11-me-390.png` 68KB、`t11-h01-home-scroll600.png` 98KB、`t11-h01-goods-scroll420.png` 32KB。像素抽检：Banner 底部点区 24 个近白像素落在 `rgb(255,90,62)` 橙红底上，白点可见。
+
+### 12.2 H-01 实测记录（供 captain 复核，未据此改动）
+
+在 `CDP_VIEWPORT=390x844` 下实测（滚动窗口 600px 后）：`.demo-bar` rect 0..52（sticky, z-index:900）、`.c-head` rect **0..89**（sticky top:0, z-index:40）→ 头部上沿 52px 被演示顶栏覆盖；`document.elementFromPoint(195,60)` 命中 `.seg`；详情页返回键 rect `top:9`、中心命中 `.brand`（演示顶栏品牌区）。
+
+这与 captain 复测的「head = 52..100、y=60 命中 head、返回键中心命中自身」不一致，可能因滚动容器不同（窄屏为整页滚动 `document.scrollingElement.scrollTop=600`，宽屏为 `.c-page` 内滚）。按裁定的「不改 `.demo-bar`/`.c-head` 的 position/z-index/top」执行，未做任何改动；如需按窄屏整页滚动再校准，建议单独开一条修复项（可选做法：窄屏把 `.c-head` 的 sticky `top` 设为 52px，或把演示顶栏从手机舞台内移出）。
+
+> **后续（t13）**：captain 已撤回上述裁定，H-01 判定为真缺陷并已在 **§13** 修复（窄屏 `.c-head{top:52px}`）。本节保留当时实测数据作为「修前现状」记录。
+
+## 13. H-01 修复：窄屏吸顶头部让位演示顶栏（t13）
+
+**判定更正**：captain 先前以 `.phone-scroll` 为滚动容器复测，但 390 窄屏下 `.phone-scroll` 的 `overflow-y` 是 `visible`、真正滚动的是 `document.scrollingElement`，所以页面其实没滚动、头部自然停在 52 —— **原「H-01 不是缺陷」的裁定已撤回，H-01 是真缺陷**。实测真值（修前）：首页滚 600 后 `.c-head` = 0..89、`elementFromPoint(195,6/44)` 命中 `BUTTON`（演示顶栏）；详情页滚 420 后 `.c-head` = 0..48、返回键 rect 9..39、中心命中 `.brand` → 看不见也点不到。
+
+### 13.1 落点（`theme.css`，只加窄屏媒体查询，不动任何 `position/z-index`）
+
+文件末尾新增 `@media (max-width: 640px)` 块（`theme.css:971-985`，21 行）：
+
+| 选择器 | 改前 | 改后 | 说明 |
+| --- | --- | --- | --- |
+| `.c-head` | `top: 0`（`theme.css:107`，全局） | `top: 52px`（仅 ≤640px） | 头部贴演示顶栏下沿（顶栏 0..52） |
+| `.tabs-scroll` | `top: 48px`（`theme.css:290`） | `top: 100px`（仅 ≤640px） | 订单页状态分栏顺延（52 + 头高 48） |
+| `.x-listbar` | `top: 48px`（`theme.css:718-720`） | `top: 100px`（仅 ≤640px） | 列表页筛选条顺延 |
+
+同一块里还修掉一个**伴生问题**（不修则 A1 命中测试仍过不了）：`@media (max-width: 640px)` 下演示顶栏被 flex 压缩，`.seg button`（原 `padding:6px 16px`）逐字折行、整条 `.seg` 长到 69px，从 52px 高的 `.demo-bar` 里溢出到 `-8..61`，压在 `top:52` 的头部上 9px。改为「不换行 + 不参与收缩 + 窄屏紧凑字号」（`.demo-bar{flex:none;white-space:nowrap}`、`.seg button{flex:none;white-space:nowrap;padding:6px 10px;font-size:12px}`、`.demo-btn{flex:none;white-space:nowrap;padding:6px 8px;font-size:11.5px}`、`.brand{flex:none;white-space:nowrap;max-width:92px;text-overflow:ellipsis}`），实测 `.seg` 回到 34px（9..43）、`.demo-bar.scrollWidth == clientWidth == 390`（无横向溢出）。
+
+宽屏（>640px）完全不受影响：手机是固定画框、由 `.phone-scroll` 内滚，头部 sticky 相对画框顶部贴齐，若这里也加 52px 会凭空多出一道空隙。
+
+### 13.2 A 组实测：390×844（滚 `document.scrollingElement`）
+
+```text
+首页 before  head {"t":52,"b":141} headRel=0   bar {"t":0,"b":52}  frameScroll=0
+首页 after   head {"t":52,"b":141} headRel=0   docScroll=600       ← 修前是 {"t":0,"b":89}
+命中 headTop+6  → DIV.x-chan-i（head 内部）    ← 修前是 DIV.seg（演示顶栏）
+命中 head 中线  → INPUT（head 搜索框）
+详情 after   head {"t":52,"b":100} back {"t":61,"b":91} hitOwn=true   ← 修前 back {"t":9..39,"hitOwn":false}
+列表页 .x-listbar top=100（head 52..100）      订单页 .tabs-scroll top=100
+购物车滚到底：.c-tab clickable（rect 788..844）  详情页 .c-actionbar clickable
+```
+
+`CDP_VIEWPORT=390x844 node .shots/t13-check.js` → **9 passed, 0 failed**（A1 头部 top=52 + 两处命中在 head 内、A2 返回键 top≥52 且中心命中自身、A3 底部 Tab/动作条可见可点、A4 两条吸顶条 top=100）。
+
+像素抽检（`.shots/t13-a-*.png`，390×844）：y 0..51 均值 `rgb(52,45,43)`（深色演示顶栏）、y 53..99 均值 `rgb(244,244,245)`（白色头部）→ 头部不再被顶栏覆盖。
+
+### 13.3 B 组实测：1200×900（滚 `.phone-scroll`，宽屏不受影响）
+
+```text
+首页 before  head {"t":88,"b":177} headRel=0  frameScroll=0
+首页 after   head {"t":88,"b":177} headRel=0  frameScroll=600   ← 相对画框顶不变，无 52px 空隙
+命中画框内头部 → DIV.x-chan-i / INPUT
+详情 after   head {"t":88,"b":136} back {"t":97,"b":127} hitOwn=true
+```
+
+`CDP_VIEWPORT=1200x900 node .shots/t13-check.js` → **5 passed, 0 failed**。
+
+### 13.4 回归（改后真实输出）
+
+```text
+node --check assets/{store,ui,app,thumbs,admin-screens}.js → 5/5 OK
+node tools/scan.js                     → 31 路由：空屏 0 / 可疑文案 0 / 横向溢出 0
+CDP_VIEWPORT=390x844 node tools/scan.js → 同上全绿
+node tools/r1.js                       → 15/15；console.error=0；未捕获异常=0
+node tools/fix-check.js                → 7/7
+node tools/store-fix-check.js          → PASS 22 / FAIL 0
+node tools/seed-check.js               → 未付款 3（可付 2 / 超时 1）
+CDP_VIEWPORT=390x844 node .shots/t9-check.js   → 40 passed, 0 failed
+CDP_VIEWPORT=390x844 node .shots/t9-extra.js   → 6 passed, 0 failed
+CDP_VIEWPORT=390x844 node .shots/t11-check.js  → 9/9
+```
+
+自检脚本同步：`.shots/t9-check.js:82` 的断言由「sticky 贴视口顶 `headTop===0`」改为「贴演示顶栏下沿 `headTop===52`」——原断言把缺陷当成了预期，已在注释里标注（`.shots/` 为自检产物，不入库）。
+
+证据截图（390×844，`.shots/`）：`t13-a-home-scroll600.png` 95KB、`t13-a-goods-scroll420.png` 35KB、`t13-a-orders-scroll400.png` 48KB。

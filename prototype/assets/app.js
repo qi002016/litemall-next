@@ -44,7 +44,8 @@
     for (k in b) if (has(b, k)) o[k] = b[k];
     return o;
   }
-  function each(list, fn) { (list || []).forEach(fn); }
+  /* 兼容类数组（HTMLCollection / NodeList）：dots.children 没有 forEach，直接调用会抛 TypeError（VERIFY-HOME-v3 H-02） */
+  function each(list, fn) { Array.prototype.forEach.call(list || [], fn); }
   function sum(list, fn) {
     return (list || []).reduce(function (a, x) { return a + fn(x); }, 0);
   }
@@ -179,19 +180,24 @@
     '</div>';
   }
 
+  /* 底部 Tab 固定 4 项：首页 / 消息 / 购物车 / 我的（分类不再是 Tab，入口在首页频道栏） */
   var C_TABS = [
     { key: 'home', label: '首页', icon: 'home', href: '#/c/home' },
-    { key: 'category', label: '分类', icon: 'grid', href: '#/c/category' },
+    { key: 'messages', label: '消息', icon: 'bell', href: '#/c/messages', unread: true },
     { key: 'cart', label: '购物车', icon: 'cart', href: '#/c/cart', badge: true },
     { key: 'me', label: '我的', icon: 'user', href: '#/c/me' }
   ];
 
   function cTabBar(active) {
     var n = Store.cartCount();
+    var un = Store.unreadCount();
     return '<div class="c-tab">' + C_TABS.map(function (t) {
-      var badge = (t.badge && n) ? '<span class="badge-dot">' + (n > 99 ? '99+' : n) + '</span>' : '';
+      var badge = '';
+      if (t.badge && n) badge = '<span class="badge-dot">' + (n > 99 ? '99+' : n) + '</span>';
+      if (t.unread && un) badge = '<span class="badge-dot">' + (un > 99 ? '99+' : un) + '</span>';
       return '<a class="' + (t.key === active ? 'on' : '') + '" data-go="' + t.href + '">' +
-        UI.icon(t.icon, 21) + '<span>' + esc(t.label) + '</span>' + badge + '</a>';
+        '<span class="x-tab-ic">' + UI.icon(t.icon, 22) + badge + '</span>' +
+        '<span>' + esc(t.label) + '</span></a>';
     }).join('') + '</div>';
   }
 
@@ -304,8 +310,8 @@
       root.innerHTML = demoBar('c') +
         '<div class="stage-c"><div class="phone"><div class="phone-scroll">' +
           '<div class="c-page">' + UI.cHeader({ title: '页面不存在' }) +
-            UI.empty({
-              icon: '🧭', title: '没有这个页面', hint: '路由 #/c/' + esc(route.path) + ' 未注册',
+            emp({
+              icon: 'warn', title: '没有这个页面', hint: '路由 #/c/' + esc(route.path) + ' 未注册',
               action: '<button class="btn primary" data-go="#/c/home">回首页</button>'
             }) +
           '</div>' +
@@ -475,54 +481,75 @@
     return line ? line.qty : 0;
   }
 
+  /* ===== 矢量小图标（ui.js 缺的扫码 / 相机 / 灯泡，内联 SVG，不用 emoji） ===== */
+  var SVG_SCAN = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M4 12h16"/></svg>';
+  var SVG_CAM = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.6A2.6 2.6 0 0 1 5.6 6h1.1l1-1.6h6.6l1 1.6h1.1A2.6 2.6 0 0 1 21 8.6v7.8A2.6 2.6 0 0 1 18.4 19H5.6A2.6 2.6 0 0 1 3 16.4z"/><circle cx="12" cy="12.4" r="3.2"/></svg>';
+  var SVG_BULB = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M9.5 18h5M10.5 21h3M12 3a6 6 0 0 0-3.6 10.8c.5.4.9 1 .9 1.6V17h5.4v-1.6c0-.6.4-1.2.9-1.6A6 6 0 0 0 12 3z"/></svg>';
+
+  /* 商品 / 轮播插图：THUMBS.of(id) 纯 SVG，找不到时返回空串（不退回 emoji） */
+  function illusOf(id) {
+    var T = window.THUMBS;
+    return (T && typeof T.of === 'function') ? T.of(id) : '';
+  }
+  function goodsThumb(goodsId, cls) {
+    return '<div class="x-thumb ' + (cls || '') + '">' + illusOf(goodsId) + '</div>';
+  }
+
+  /* 空态：icon 传 UI.icon 名称（不再用 emoji） */
+  var EMP_ICONS = {
+    cart: 'cart', bell: 'bell', search: 'search', box: 'box', list: 'list', star: 'star',
+    comment: 'comment', money: 'money', grid: 'grid', user: 'user', truck: 'truck',
+    location: 'location', tag: 'tag', clock: 'clock', warn: 'warn', check: 'check'
+  };
+  function emp(o) {
+    o = o || {};
+    var ic = EMP_ICONS[o.icon] || 'box';
+    return '<div class="empty">' +
+      '<div class="ico" style="font-size:0;line-height:0;color:#C4CBD6">' + UI.icon(ic, 30) + '</div>' +
+      '<div class="t">' + esc(o.title || '暂无数据') + '</div>' +
+      (o.hint ? '<div class="h">' + o.hint + '</div>' : '') +
+      (o.action ? '<div style="margin-top:14px">' + o.action + '</div>' : '') +
+    '</div>';
+  }
+
+  var STUB_SVG = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#FFA36A" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg>';
+  function starSVG(size, on) {
+    return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" ' +
+      'fill="' + (on ? '#FFB400' : '#E3E6EC') + '" stroke="' + (on ? 'none' : '#DDE2EA') + '" stroke-width="1" style="flex:none">' +
+      '<path d="M12 2.8l2.8 5.8 6.4.9-4.6 4.5 1.1 6.4L12 17.4 6.3 20.4l1.1-6.4L2.8 9.5l6.4-.9z"/></svg>';
+  }
+  function starsRow(rate, size) {
+    var out = '';
+    for (var i = 1; i <= 5; i++) out += starSVG(size || 13, i <= Math.round(rate || 0));
+    return '<div class="row" style="gap:1px;align-items:center">' + out + '</div>';
+  }
+
+  /* 商品卡：首页 / 列表 / 搜索 / 收藏 共用（矢量插图 + 标签 + 价格 + 已售） */
+  var GTAG_CLASS = { '多规格': 'multi', '爆款': 'hot', '热卖': 'sale', '新品': 'new' };
   function goodsCard(g) {
     var soldOut = Store.totalStock(g) <= 0;
-    var tag = '';
-    if (soldOut) tag = '<span class="corner">暂时缺货</span>';
-    else if (g.tags && g.tags.length) tag = '<span class="corner">' + esc(g.tags[0]) + '</span>';
-    return '<div class="gcard' + (soldOut ? ' soldout' : '') + '" data-go="#/c/goods/' + esc(g.id) + '">' +
-      '<div class="pic" style="background:linear-gradient(135deg,' + esc(g.pics[0]) + ',#ffffff66)">' +
-        esc(g.pics[1]) + tag +
+    var tags = (g.tags || []).slice(0, 2).map(function (t) {
+      return '<span class="x-gtag x-gtag-' + (GTAG_CLASS[t] || 'other') + '">' + esc(t) + '</span>';
+    }).join('');
+    return '<div class="x-gcard' + (soldOut ? ' soldout' : '') + '" data-go="#/c/goods/' + esc(g.id) + '">' +
+      '<div class="x-gpic" style="background:linear-gradient(150deg,' + esc(g.pics[0]) + '2E,#F7F8FA 74%)">' +
+        '<div class="x-gtags">' + tags +
+          (soldOut ? '<span class="x-gtag x-gtag-gray">暂时缺货</span>' : '') +
+        '</div>' +
+        illusOf(g.id) +
       '</div>' +
-      '<div class="info">' +
-        '<div class="nm">' + esc(g.name) + '</div>' +
-        '<div class="meta">' + price(Store.displayPrice(g), 'price-md') +
+      '<div class="x-ginfo">' +
+        '<div class="x-gnm clamp2">' + esc(g.name) + '</div>' +
+        '<div class="x-gmeta">' + price(Store.displayPrice(g)) +
           '<span class="sales">已售 ' + g.sales + '</span></div>' +
       '</div>' +
     '</div>';
   }
 
-  /* ===== 界面改版（v3.1）：分类横滚条 / 消息入口 / 工具区 / 淘宝式筛选 ===== */
-  var CAT_EMOJI = { c1: '👕', c2: '🏠', c3: '🎧', c4: '☕', c5: '🏃' };
-  function catEmoji(id) { return CAT_EMOJI[id] || '🛍️'; }
+  /* 一级分类（列表页筛选与分类页共用） */
   function topCats() {
     return Store.state.cats.filter(function (c) { return !c.parentId; })
       .slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
-  }
-  /* 首页分类横滚条：单行横滑、隐藏滚动条，末项固定「全部分类」；不参与页面横向溢出 */
-  function catStrip() {
-    var items = topCats().map(function (c) {
-      return '<div class="x-catpill" data-go="#/c/list?catId=' + esc(c.id) + '">' +
-        '<span class="em">' + catEmoji(c.id) + '</span>' + esc(c.name) + '</div>';
-    }).join('');
-    return '<div class="x-catstrip"><div class="x-catstrip-in">' + items +
-      '<div class="x-catpill more" data-go="#/c/category">全部分类 ›</div></div></div>';
-  }
-  /* 消息入口卡（替换原 5 宫格位置） */
-  function msgEntry() {
-    var last = Store.messages()[0];
-    var un = Store.unreadCount();
-    return '<div class="x-msgcard" data-go="#/c/messages">' +
-      '<div class="ic">' + UI.icon('bell', 20) +
-        (un ? '<i class="dot">' + (un > 99 ? '99+' : un) + '</i>' : '') + '</div>' +
-      '<div class="grow" style="min-width:0">' +
-        '<div class="row between"><span class="small bold">消息</span>' +
-          '<span class="tiny dim">' + (last ? UI.fromNow(last.at) : '') + '</span></div>' +
-        '<div class="tiny dim ellipsis mt6">' +
-          (last ? esc(last.title) + ' · ' + esc(last.text) : '暂无消息') + '</div>' +
-      '</div>' +
-      '<div class="tiny dim" style="flex:none">查看全部 ›</div>' +
-    '</div>';
   }
 
   function itemRow(it, opt) {
@@ -531,7 +558,7 @@
       ? '<span class="tag gray" style="margin-left:4px">已退款 ' + it.refundedQty + ' 件</span>' : '';
     var reviewed = it.reviewed ? '<span class="tag ok" style="margin-left:4px">已评价</span>' : '';
     return '<div class="row top" style="gap:10px;padding:8px 0">' +
-      UI.thumb(it.bg, it.emoji, opt.sm === false ? '' : 'sm') +
+      goodsThumb(it.goodsId, opt.sm === false ? '' : 'sm') +
       '<div class="grow">' +
         '<div class="small bold clamp2">' + esc(it.name) + '</div>' +
         '<div class="tiny dim mt6">' + esc(it.specText || '') + refunded + reviewed + '</div>' +
@@ -556,8 +583,8 @@
 
   function notFoundC(title, hint, back) {
     return '<div class="c-page">' + UI.cHeader({ title: title || '页面' }) +
-      UI.empty({
-        icon: '🧭', title: title || '没有找到', hint: hint || '',
+      emp({
+        icon: 'warn', title: title || '没有找到', hint: hint || '',
         action: '<button class="btn primary" data-go="' + esc(back || '#/c/home') + '">回首页</button>'
       }) + '</div>';
   }
@@ -649,60 +676,95 @@
    * ==========================================================================*/
   var C_ROUTES = [];
 
-  /* ---------------------------- 1. 首页 ---------------------------- */
+  /* ---------------------------- 1. 首页（淘宝风格 390×844） ---------------------------- */
+  /* 频道栏固定顺序（不按 cat.sort）：推荐=全部商品，其余按一级分类 id 跳列表 */
+  var HOME_CHANNELS = [
+    { key: 'rec', label: '推荐' },
+    { key: 'c1', label: '服饰' },
+    { key: 'c2', label: '家居' },
+    { key: 'c4', label: '食品' },
+    { key: 'c5', label: '运动' },
+    { key: 'c6', label: '美妆' },
+    { key: 'c3', label: '数码' }
+  ];
+  function homeChannels() {
+    return '<div class="x-chan">' + HOME_CHANNELS.map(function (c) {
+      return '<div class="x-chan-i' + (c.key === 'rec' ? ' on' : '') + '" data-go="' +
+        (c.key === 'rec' ? '#/c/list' : '#/c/list?catId=' + esc(c.key)) + '">' + esc(c.label) + '</div>';
+    }).join('') +
+      '<div class="x-chan-cat" data-go="#/c/category">' + UI.icon('grid', 13) + '<span>分类</span></div>' +
+    '</div>';
+  }
+  function homeSearchBar() {
+    var n = Store.cartCount();
+    return '<div class="x-hsearch">' +
+      '<div class="x-sbox">' +
+        '<span class="x-ico" data-go="#/c/search">' + SVG_SCAN + '</span>' +
+        '<input id="home-kw" placeholder="搜商品 / 标签，如「卫衣」" data-enter="homeSearch" />' +
+        '<span class="x-ico" data-go="#/c/search">' + SVG_CAM + '</span>' +
+      '</div>' +
+      '<button class="x-sbtn" data-act="homeSearch">搜索</button>' +
+      '<div class="x-cartbtn" data-go="#/c/cart">' + UI.icon('cart', 22) +
+        (n ? '<span class="badge-dot">' + (n > 99 ? '99+' : n) + '</span>' : '') +
+      '</div>' +
+    '</div>';
+  }
+  function bannerHTML(b) {
+    return '<span class="x-btag">' + esc(b.tag || '限时') + '</span>' +
+      '<div class="x-btxt"><div class="x-bt">' + esc(b.title) + '</div>' +
+        (b.sub ? '<div class="x-bs">' + esc(b.sub) + '</div>' : '') +
+      '</div>' +
+      '<div class="x-bimg">' + illusOf(b.illus) + '</div>';
+  }
 
   C_ROUTES.push({
     path: 'home',
     render: function () {
       var st = Store.state;
-      var banners = (st.banners || []).slice(0, 5);
-      var b0 = banners[0] || { title: '小满商城', sub: '', bg: '#ff5a1f', emoji: '🛍️' };
+      var banners = (st.banners || []).slice(0, 3);
+      var b0 = banners[0] || { title: '小满商城', sub: '', bg: 'linear-gradient(120deg,#FF7A18,#FF4D4D)' };
       var list = Store.goodsList({});
 
-      var html = '<div class="c-page">' +
-        catStrip() +
-        '<div class="home-search">' +
-          '<div class="logo">小满</div>' +
-          '<div class="box" data-go="#/c/search">' + UI.icon('search', 15) +
-            '<span>搜商品 / 标签，如「卫衣」</span></div>' +
-          '<div data-go="#/c/cart" style="color:#fff">' + UI.icon('cart', 21) + '</div>' +
-        '</div>' +
-        '<div style="padding:10px 12px 0">' +
-          '<div class="banner" id="home-banner" style="background:' + esc(b0.bg) + '" data-go="' + bannerHref(b0) + '">' +
-            '<div><div class="t">' + esc(b0.title) + '</div><div class="s">' + esc(b0.sub) + '</div></div>' +
-            '<div class="em">' + esc(b0.emoji) + '</div>' +
-          '</div>' +
-          '<div class="banner-dots" id="home-dots">' + banners.map(function (b, i) {
-            return '<i class="' + (i === 0 ? 'on' : '') + '" data-i="' + i + '"></i>';
-          }).join('') + '</div>' +
-          '<div class="notice-bar mt10">' + UI.icon('bell', 14) +
-            '<div class="grow">' + esc(st.notice.text) + '</div>' +
-            '<span class="tiny dim">' + UI.fromNow(st.notice.at) + '</span></div>' +
-          msgEntry() +
-        '</div>' +
-        '<div class="c-body" style="padding-top:0">' +
-          '<div class="row between" style="margin-bottom:8px">' +
-            '<div class="bold">为你推荐</div><div class="tiny dim">在售 ' + list.length + ' 件</div></div>' +
-          '<div class="goods-grid">' + list.map(goodsCard).join('') + '</div>' +
-          '<div class="tiny dim center" style="padding:14px 0 4px">已经到底了 · 演示数据</div>' +
-        '</div>' +
-      '</div>';
-
       return {
-        html: html,
+        html: '<div class="c-page">' +
+          '<div class="c-head x-hhead">' + homeChannels() + homeSearchBar() + '</div>' +
+          '<div class="c-body" style="padding-top:10px">' +
+            '<div class="x-bwrap">' +
+            '<div class="x-banner" id="home-banner" style="background:' + esc(b0.bg) + '" data-go="' + bannerHref(b0) + '">' +
+              bannerHTML(b0) + '</div>' +
+            '<div class="x-bdots" id="home-dots">' + banners.map(function (b, i) {
+              return '<i class="' + (i === 0 ? 'on' : '') + '" data-i="' + i + '"></i>';
+            }).join('') + '</div>' +
+            '</div>' +
+            '<div class="x-notice">' + SVG_BULB +
+              '<div class="grow ellipsis">' + esc(st.notice.text) + '</div>' +
+              '<span class="t">' + UI.fromNow(st.notice.at) + '</span></div>' +
+            '<div class="row between" style="margin:14px 2px 8px">' +
+              '<div class="bold" style="font-size:15px">为你推荐</div>' +
+              '<div class="tiny dim">在售 ' + list.length + ' 件</div></div>' +
+            '<div class="goods-grid">' + list.map(goodsCard).join('') + '</div>' +
+            '<div class="tiny dim center" style="padding:14px 0 4px">已经到底了 · 演示数据</div>' +
+          '</div>' +
+        '</div>',
         tab: 'home',
         title: '首页',
+        actions: {
+          homeSearch: function () {
+            var el = document.getElementById('home-kw');
+            var kw = el ? String(el.value || '').trim() : '';
+            go(kw ? '#/c/list?kw=' + encodeURIComponent(kw) : '#/c/list');
+          }
+        },
         mount: function (root, ctx) {
           var el = root.querySelector('#home-banner');
           var dots = root.querySelector('#home-dots');
-          if (!el || !banners.length) return;
+          if (!el) return;
+          if (banners.length < 2) { if (dots) dots.style.display = 'none'; return; }
           var idx = 0;
           function paint() {
             var b = banners[idx];
             el.style.background = b.bg;
-            el.innerHTML = '<div><div class="t">' + esc(b.title) + '</div>' +
-              '<div class="s">' + esc(b.sub) + '</div></div>' +
-              '<div class="em">' + esc(b.emoji) + '</div>';
+            el.innerHTML = bannerHTML(b);
             el.setAttribute('data-go', bannerHref(b));
             each(dots.children, function (d, i) { d.className = i === idx ? 'on' : ''; });
           }
@@ -733,20 +795,26 @@
         return { key: t.key, label: t.label, count: Store.unreadCount(t.key) };
       });
       var badge = { order: 'info', aftersale: 'warn', coupon: 'danger', system: 'gray' };
+      var TYPE_ICON = { order: 'truck', aftersale: 'refresh', coupon: 'tag', system: 'bell' };
       var body = list.length
         ? list.map(function (m) {
             return '<div class="card pad x-msg' + (m.read ? '' : ' unread') + '" data-act="open" data-id="' + esc(m.id) + '">' +
-              '<div class="row between"><span class="tag ' + (badge[m.type] || 'gray') + '">' +
-                esc(Store.MSG_TYPE_NAME[m.type] || m.type) + '</span>' +
-                '<span class="tiny dim">' + UI.fromNow(m.at) + ' · ' + UI.time(m.at) + '</span></div>' +
-              '<div class="row between mt8"><div class="small bold">' + esc(m.title) + '</div>' +
-                (m.read ? '' : '<i class="x-reddot"></i>') + '</div>' +
-              '<div class="tiny dim mt6" style="line-height:1.7">' + esc(m.text) + '</div>' +
-              (m.href ? '<div class="tiny mt8" style="color:var(--brand)">查看详情 ›</div>' : '') +
+              '<div class="row top" style="gap:10px">' +
+                '<div class="x-mav ' + esc(m.type) + '">' + UI.icon(TYPE_ICON[m.type] || 'bell', 19) + '</div>' +
+                '<div class="grow" style="min-width:0">' +
+                  '<div class="row between"><span class="tag ' + (badge[m.type] || 'gray') + '">' +
+                    esc(Store.MSG_TYPE_NAME[m.type] || m.type) + '</span>' +
+                    '<span class="tiny dim">' + UI.fromNow(m.at) + '</span></div>' +
+                  '<div class="row between mt6"><span class="small bold ellipsis">' + esc(m.title) + '</span>' +
+                    (m.read ? '' : '<i class="x-reddot"></i>') + '</div>' +
+                  '<div class="tiny dim mt6 clamp2">' + esc(m.text) + '</div>' +
+                  (m.href ? '<div class="tiny mt6" style="color:var(--brand)">查看详情 ›</div>' : '') +
+                '</div>' +
+              '</div>' +
             '</div>';
           }).join('')
-        : UI.empty({
-            icon: '🔔', title: '暂无消息',
+        : emp({
+            icon: 'bell', title: '暂无消息',
             hint: '订单、售后、优惠券的系统通知都会出现在这里'
           });
 
@@ -754,6 +822,7 @@
         html: '<div class="c-page">' +
           UI.cHeader({
             title: '消息',
+            noBack: true,
             right: unAll
               ? '<span data-act="readAll">全部已读</span>'
               : '<span class="dim">已全部读过</span>'
@@ -761,6 +830,7 @@
           tabsMarkup(tabs, tab) +
           '<div class="c-body" style="padding-top:10px">' + body + '</div>' +
         '</div>',
+        tab: 'messages',
         title: '消息',
         actions: {
           otab: function (el) { go('#/c/messages?type=' + el.getAttribute('data-key')); },
@@ -848,9 +918,9 @@
         .sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
       if (!tops.length) {
         return {
-          html: '<div class="c-page">' + UI.cHeader({ title: '分类', noBack: true }) +
-            UI.empty({ icon: '🗂️', title: '还没有分类', hint: '后台新建分类后会出现在这里' }) + '</div>',
-          tab: 'category', title: '分类'
+          html: '<div class="c-page">' + UI.cHeader({ title: '分类' }) +
+            emp({ icon: 'grid', title: '还没有分类', hint: '后台新建分类后会出现在这里' }) + '</div>',
+          title: '分类'
         };
       }
       var curId = ctx.query.catId || tops[0].id;
@@ -864,17 +934,17 @@
       }).join('');
 
       var subs = '<div class="x-sub">' +
-        '<div class="it" data-go="#/c/list?catId=' + esc(curTop.id) + '"><span class="e">🗂️</span>全部' + esc(curTop.name) + '</div>' +
+        '<div class="it" data-go="#/c/list?catId=' + esc(curTop.id) + '"><span class="e">' + STUB_SVG + '</span>全部' + esc(curTop.name) + '</div>' +
         kids.map(function (c) {
           var n = Store.goodsList({ catId: c.id }).length;
           return '<div class="it" data-go="#/c/list?catId=' + esc(c.id) + '">' +
-            '<span class="e">' + ['👗', '🏠', '🎧', '☕', '🏃'][(c.sort || 1) % 5] + '</span>' +
+            '<span class="e">' + STUB_SVG + '</span>' +
             esc(c.name) + '<div class="tiny dim">' + n + ' 件</div></div>';
         }).join('') +
       '</div>';
 
       return {
-        html: '<div class="c-page">' + UI.cHeader({ title: '分类', noBack: true }) +
+        html: '<div class="c-page">' + UI.cHeader({ title: '分类' }) +
           '<div style="display:flex;min-height:600px">' +
             '<div class="x-cat-left">' + left + '</div>' +
             '<div class="x-cat-right">' +
@@ -882,7 +952,6 @@
             '</div>' +
           '</div>' +
         '</div>',
-        tab: 'category',
         title: '分类'
       };
     }
@@ -967,8 +1036,8 @@
 
       var body = list.length
         ? '<div class="goods-grid">' + list.map(goodsCard).join('') + '</div>'
-        : UI.empty({
-            icon: '🔍', title: '没有找到相关商品',
+        : emp({
+            icon: 'search', title: '没有找到相关商品',
             hint: '当前筛选：' + esc(kw || '无关键词') + ' · ' + esc(catId ? catName(catId) : '全部分类') +
               (brandId ? ' · ' + esc(brandName(brandId)) : '') +
               '<br>试试换个关键词，或放宽价格区间 / 品牌',
@@ -1125,8 +1194,8 @@
       if (!g.onSale) {
         return {
           html: '<div class="c-page">' + UI.cHeader({ title: '商品详情' }) +
-            UI.empty({
-              icon: '📦', title: '商品已下架', hint: '下架商品 C 端列表与详情不可访问（BR-GOODS-08）',
+            emp({
+              icon: 'box', title: '商品已下架', hint: '下架商品 C 端列表与详情不可访问（BR-GOODS-08）',
               action: '<button class="btn primary" data-go="#/c/list">看看别的</button>'
             }) + '</div>',
           title: '商品详情'
@@ -1167,7 +1236,7 @@
 
       var detailPane = '<div class="small" style="line-height:1.8;color:var(--text-2)">' +
         esc(g.detail) + '</div>' +
-        '<div class="mt12">' + UI.thumb(g.pics[0], g.pics[1], 'lg') + '</div>';
+        '<div class="mt12">' + goodsThumb(g.id, 'lg') + '</div>';
       var paramPane = '<div class="x-kv"><span class="k">商品名称</span><span class="v">' + esc(g.name) + '</span></div>' +
         '<div class="x-kv"><span class="k">品牌</span><span class="v">' + esc(brandName(g.brandId) || '—') + '</span></div>' +
         '<div class="x-kv"><span class="k">分类</span><span class="v">' + esc(catName(g.catId) || '—') + '</span></div>' +
@@ -1184,12 +1253,12 @@
             return '<div style="padding:10px 0;border-bottom:1px solid var(--line)">' +
               '<div class="row between"><div class="small bold">' + esc(r.user) + '</div>' +
                 '<div class="tiny dim">' + UI.fromNow(r.at) + '</div></div>' +
-              '<div style="margin:4px 0">' + UI.starRate(r.rate, 13) + '</div>' +
+              '<div style="margin:4px 0">' + starsRow(r.rate, 13) + '</div>' +
               '<div class="small" style="color:var(--text-2)">' + esc(r.content) + '</div>' +
               (r.reply ? '<div class="tiny mt6" style="background:#f7f8fa;padding:6px 8px;border-radius:8px">商家回复：' + esc(r.reply) + '</div>' : '') +
             '</div>';
           }).join('')
-        : UI.empty({ icon: '💬', title: '还没有评价', hint: '确认收货后可以来评价' });
+        : emp({ icon: 'comment', title: '还没有评价', hint: '确认收货后可以来评价' });
 
       var pane = detailTab === 'params' ? paramPane : (detailTab === 'reviews' ? reviewPane : detailPane);
 
@@ -1215,7 +1284,7 @@
             title: '商品详情',
             right: '<span data-act="share">分享</span>'
           }) +
-          '<div class="thumb lg" style="background:linear-gradient(135deg,' + esc(g.pics[0]) + ',#ffffff66)">' + esc(g.pics[1]) + '</div>' +
+          goodsThumb(g.id, 'lg') +
           '<div class="detail-price">' +
             '<div class="p">' + price(priceCent) + '</div>' +
             '<div class="row between mt6" style="font-size:12px;opacity:.92">' +
@@ -1338,7 +1407,7 @@
         return '<div class="card pad" style="margin-bottom:8px">' +
           '<div class="row top">' +
             '<div class="cbx' + (l.checked ? ' on' : '') + '" data-act="check" data-key="' + esc(l.key) + '"></div>' +
-            UI.thumb(l.bg, l.emoji, 'sm') +
+            goodsThumb(l.goodsId, 'sm') +
             '<div class="grow">' +
               '<div class="small bold clamp2">' + esc(l.name) + '</div>' +
               '<div class="tiny dim mt6">' + esc(l.specText) + '</div>' +
@@ -1358,7 +1427,7 @@
         return '<div class="card pad" style="margin-bottom:8px;opacity:.72">' +
           '<div class="row top">' +
             '<div class="cbx disabled"></div>' +
-            UI.thumb(l.bg, l.emoji, 'sm') +
+            goodsThumb(l.goodsId, 'sm') +
             '<div class="grow">' +
               '<div class="small bold clamp2">' + esc(l.name) + '</div>' +
               '<div class="tiny dim mt6">' + esc(l.specText) + '</div>' +
@@ -1386,8 +1455,8 @@
               : '') +
             '<div class="tiny dim center" style="padding:10px 0">失效行不可勾选、不参与结算（BR-CART-05）</div>' +
           '</div>'
-        : UI.empty({
-            icon: '🛒', title: '购物车还是空的', hint: '挑几件喜欢的商品加进来吧',
+        : emp({
+            icon: 'cart', title: '购物车还是空的', hint: '挑几件喜欢的商品加进来吧',
             action: '<button class="btn primary" data-go="#/c/home">去逛逛</button>'
           });
 
@@ -1471,8 +1540,8 @@
       if (!lines.length) {
         return {
           html: '<div class="c-page">' + UI.cHeader({ title: '确认订单' }) +
-            UI.empty({
-              icon: '🧾', title: '没有待结算的商品', hint: '回购物车勾选商品，或直接「立即购买」',
+            emp({
+              icon: 'list', title: '没有待结算的商品', hint: '回购物车勾选商品，或直接「立即购买」',
               action: '<button class="btn primary" data-go="#/c/cart">回购物车</button>'
             }) + '</div>',
           title: '确认订单'
@@ -1941,8 +2010,8 @@
 
       var body = list.length
         ? list.map(orderCard).join('')
-        : UI.empty({
-            icon: '📋',
+        : emp({
+            icon: 'list',
             title: tab === 'all' ? '还没有订单' : ('没有' + tabLabel + '的订单'),
             hint: '下单后可在这里查看进度、支付、申请售后',
             action: '<button class="btn primary" data-go="#/c/home">去逛逛</button>'
@@ -2126,8 +2195,8 @@
       if (!can.ok) {
         return {
           html: '<div class="c-page">' + UI.cHeader({ title: '申请售后' }) +
-            UI.empty({
-              icon: '🚫', title: '当前无法申请售后', hint: esc(can.msg),
+            emp({
+              icon: 'warn', title: '当前无法申请售后', hint: esc(can.msg),
               action: '<button class="btn primary" data-go="' + esc(orderId ? '#/c/order/' + orderId : '#/c/orders') + '">返回订单</button>'
             }) + '</div>',
           title: '申请售后'
@@ -2424,8 +2493,8 @@
                 '<span class="small">退款 ' + price(a.amount) + '</span></div>' +
             '</div>';
           }).join('')
-        : UI.empty({
-            icon: '🧾', title: '没有售后记录',
+        : emp({
+            icon: 'list', title: '没有售后记录',
             hint: '已收货/待发货的订单行可申请售后；同一订单行同时只能有 1 个进行中的售后',
             action: '<button class="btn primary" data-go="#/c/orders">去订单列表</button>'
           });
@@ -2469,8 +2538,8 @@
                     '<div class="row" style="justify-content:flex-end"><button class="btn sm primary">去评价</button></div>' +
                   '</div>';
                 }).join('')
-              : UI.empty({
-                  icon: '⭐', title: '没有待评价的商品',
+              : emp({
+                  icon: 'star', title: '没有待评价的商品',
                   hint: '确认收货后可以评价；已退款的行不可评价（BR-AS-17）',
                   action: '<button class="btn primary" data-go="#/c/orders?tab=review">看待评价订单</button>'
                 })) + '</div>' +
@@ -2485,8 +2554,8 @@
       if (!rows.length) {
         return {
           html: '<div class="c-page">' + UI.cHeader({ title: '评价' }) +
-            UI.empty({
-              icon: '✅', title: '这个订单没有可评价的商品',
+            emp({
+              icon: 'check', title: '这个订单没有可评价的商品',
               hint: '已全部评价或商品已退款退货',
               action: '<button class="btn primary" data-go="#/c/order/' + esc(o.id) + '">返回订单</button>'
             }) + '</div>',
@@ -2504,7 +2573,7 @@
             '<span class="tiny dim">评分</span>' +
             [1, 2, 3, 4, 5].map(function (n) {
               return '<span data-act="rate" data-item="' + esc(it.id) + '" data-v="' + n + '" ' +
-                'style="font-size:22px;cursor:pointer;color:' + (n <= rate ? '#ffb400' : '#e3e6ec') + '">★</span>';
+                'style="cursor:pointer;line-height:0">' + starSVG(22, n <= rate) + '</span>';
             }).join('') +
             '<span class="tiny dim">' + rate + ' 分</span>' +
           '</div>' +
@@ -2595,11 +2664,14 @@
 
       var html = '<div class="c-page">' +
         '<div class="c-head" style="background:linear-gradient(135deg,#ff5a1f,#ff2e4d);color:#fff;border:0">' +
-          '<div style="width:30px"></div><div class="title" style="color:#fff">我的</div><div class="right"></div>' +
+          '<div style="width:30px"></div><div class="title" style="color:#fff">我的</div>' +
+          /* H-05：HEAD 区补客服入口（内联 SVG 图标，占位 toast 与详情页同一口径） */
+          '<div class="right" style="color:#fff"><span data-act="service" style="display:flex;align-items:center;gap:4px;color:#fff">' +
+            UI.icon('comment', 17) + '客服</span></div>' +
         '</div>' +
         '<div style="background:linear-gradient(135deg,#ff5a1f,#ff2e4d);color:#fff;padding:0 16px 22px">' +
           '<div class="row" style="gap:12px">' +
-            '<div style="width:54px;height:54px;border-radius:50%;background:#ffffff33;display:grid;place-items:center;font-size:26px">🧑</div>' +
+            '<div class="x-mavatar">' + UI.icon('user', 28) + '</div>' +
             '<div class="grow"><div class="bold" style="font-size:16px">' + esc(st.user.nick) + '</div>' +
               '<div class="tiny" style="opacity:.85;margin-top:4px">' + esc(st.user.phone) + ' · 演示账号</div></div>' +
             '<span class="tag" style="background:#ffffff2e;color:#fff">Lv.2 会员</span>' +
@@ -2634,6 +2706,9 @@
               '<div class="value">' + st.reviews.length + ' 条 ' + UI.icon('right', 14) + '</div></div>' +
             '<div class="cell clickable" data-go="#/c/aftersales"><div class="label">我的售后</div>' +
               '<div class="value">' + st.aftersales.length + ' 单 ' + UI.icon('right', 14) + '</div></div>' +
+            /* H-05：cell 列表补「客服」入口（与详情页同一条占位 action） */
+            '<div class="cell clickable" data-act="service"><div class="label">客服</div>' +
+              '<div class="value">在线客服 9:00–21:00 ' + UI.icon('right', 14) + '</div></div>' +
           '</div>' +
           '<div class="card pad mt10">' +
             '<div class="row between"><span class="small bold">演示模式说明</span>' +
@@ -2653,7 +2728,10 @@
         '</div>' +
       '</div>';
 
-      return { html: html, tab: 'me', title: '我的' };
+      return { html: html, tab: 'me', title: '我的', actions: {
+        /* H-05：客服占位入口（需求未定义会话能力，与商品详情 app.js service 同口径） */
+        service: function () { toast('客服为占位入口（需求未定义会话能力）'); }
+      } };
     }
   });
 
@@ -2668,8 +2746,8 @@
               '<button class="x-fav-del" data-act="unfav" data-id="' + esc(g.id) + '">取消收藏</button>' +
             '</div>';
           }).join('') + '</div>'
-        : UI.empty({
-            icon: '⭐', title: '还没有收藏商品',
+        : emp({
+            icon: 'star', title: '还没有收藏商品',
             hint: '在商品详情页点「收藏」，就能在这里快速找回',
             action: '<button class="btn primary" data-go="#/c/home">去逛逛</button>'
           });
@@ -2703,7 +2781,7 @@
           'data-type="' + type + '" data-id="' + esc(id) + '">' + (on ? '已关注' : '+ 关注') + '</button>';
       }
       var body = '<div class="x-shopcard">' +
-          '<div class="avatar">🏪</div>' +
+          '<div class="avatar">' + UI.icon('shop', 20) + '</div>' +
           '<div class="grow" style="min-width:0"><div class="bold">小满商城官方店</div>' +
             '<div class="tiny dim mt6">自营 · 全品类 · 在售 ' + Store.goodsList({}).length + ' 件</div></div>' +
           followBtn('shop', 'shop1', shopOn) +
@@ -2751,7 +2829,7 @@
           arr.map(function (x) {
             var g = x.goods;
             return '<div class="card pad x-fp" data-go="#/c/goods/' + esc(g.id) + '">' +
-              UI.thumb(g.pics[0], g.pics[1], 'sm') +
+              goodsThumb(g.id, 'sm') +
               '<div class="grow" style="min-width:0">' +
                 '<div class="small bold clamp2">' + esc(g.name) + '</div>' +
                 '<div class="row between mt8">' + price(Store.displayPrice(g), 'price-md') +
@@ -2760,8 +2838,8 @@
           }).join('') + '</div>';
       }).join('');
       var body = list.length ? groups
-        : UI.empty({
-            icon: '👣', title: '还没有浏览记录',
+        : emp({
+            icon: 'clock', title: '还没有浏览记录',
             hint: '看过的商品会按「今天 / 昨天 / 更早」自动分组，最多保留 30 件',
             action: '<button class="btn primary" data-go="#/c/home">去逛逛</button>'
           });
@@ -2855,8 +2933,8 @@
               '</div>' +
             '</div>';
           }).join('')
-        : UI.empty({
-            icon: '🎫', title: MYCP_TAB === 'unused' ? '还没有可用的券' : '这里还是空的',
+        : emp({
+            icon: 'tag', title: MYCP_TAB === 'unused' ? '还没有可用的券' : '这里还是空的',
             hint: MYCP_TAB === 'unused' ? '去「领券中心」领一张，下单时自动可选' : '',
             action: MYCP_TAB === 'unused' ? '<button class="btn primary" data-go="#/c/coupons?tab=center">去领券</button>' : ''
           });
@@ -2915,7 +2993,7 @@
               '</div>' +
             '</div>';
           }).join('')
-        : UI.empty({ icon: '📍', title: '还没有收货地址', hint: '添加地址后才能在结算页提交订单' });
+        : emp({ icon: 'location', title: '还没有收货地址', hint: '添加地址后才能在结算页提交订单' });
 
       function formSheet(id) {
         var a = id ? list.filter(function (x) { return x.id === id; })[0] : null;

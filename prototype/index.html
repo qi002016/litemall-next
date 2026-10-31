@@ -61,8 +61,10 @@
     }
     .x-sub .it .e { display: block; font-size: 22px; margin-bottom: 6px; }
 
-    /* 手机壳内绝不出横向滚动条 */
-    .phone .c-page, .phone .c-body { max-width: 100%; overflow-x: hidden; }
+    /* 手机壳内绝不出横向滚动条。
+       注意：用 clip 而非 hidden——hidden 会把另一轴的 visible 计算成 auto，
+       使 .c-page 变成 scrollport，从而让 .c-head 的 position:sticky 失效。 */
+    .phone .c-page, .phone .c-body { max-width: 100%; overflow-x: clip; }
     .admin-body { min-width: 0; }
 
     /* 初始占位（脚本接管后会被替换） */
@@ -79,6 +81,8 @@
 
   <!-- 数据层：全部业务规则（只读，禁止改） -->
   <script src="assets/store.js"></script>
+  <!-- 商品 / 轮播矢量插图库（纯内联 SVG，只读，禁止改） -->
+  <script src="assets/thumbs.js"></script>
   <!-- 片段工厂 / 格式化 / toast / sheet（只读，禁止改） -->
   <script src="assets/ui.js"></script>
   <!-- 后台 10 屏：由 proto-admin 维护，注册 window.ADMIN_ROUTES -->
