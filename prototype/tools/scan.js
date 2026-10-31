@@ -13,7 +13,10 @@ const C = [
   ['c10-order', '#/c/order/o114'], ['c11-as-apply', '#/c/aftersale/apply?orderId=o114&itemId=it0'],
   ['c12-as-detail', '#/c/aftersale/as100'], ['c13-aftersales', '#/c/aftersales'],
   ['c14-review', '#/c/review?orderId=o114'], ['c15-me', '#/c/me'], ['c16-coupons', '#/c/coupons'],
-  ['c17-address', '#/c/address']
+  ['c17-address', '#/c/address'],
+  // 界面改版新增 4 屏（消息 / 收藏 / 关注 / 足迹）
+  ['c18-messages', '#/c/messages'], ['c19-favorites', '#/c/favorites'],
+  ['c20-follows', '#/c/follows'], ['c21-footprints', '#/c/footprints']
 ];
 const A = [
   ['a01-login', '#/admin/login'], ['a02-dashboard', '#/admin/dashboard'], ['a03-orders', '#/admin/orders'],

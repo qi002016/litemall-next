@@ -376,6 +376,27 @@
       state.aftersales.push(base);
     });
 
+    /* ---- 种子：收藏 / 关注 / 足迹 / 消息（界面改版新增，纯演示数据） ---- */
+    state.favorites = ['g1', 'g5', 'g11'];
+    state.follows = [
+      { type: 'shop', id: 'shop1', name: '小满商城官方店', at: t - 20 * DAY },
+      { type: 'brand', id: 'b1', name: brands[0].name, at: t - 9 * DAY },
+      { type: 'brand', id: 'b3', name: brands[2].name, at: t - 3 * DAY }
+    ];
+    state.footprints = ['g2', 'g9', 'g1', 'g14', 'g5', 'g7', 'g12', 'g16'].map(function (gid, i) {
+      return { goodsId: gid, at: t - [0.5, 3, 26, 30, 51, 74, 100, 160][i] * 3600000 };
+    });
+    state.messages = [
+      { id: 'msg1', type: 'order', title: '订单已发货', text: '「重磅纯棉oversize T恤」已由顺丰发出，运单号 SF2000000091，预计 2 天送达。', at: t - 40 * MIN, read: false, href: '#/c/orders?tab=shipped' },
+      { id: 'msg2', type: 'aftersale', title: '售后审核通过', text: '你申请的「退货退款」已通过审核，请在 7 天内寄回商品并填写运单号。', at: t - 3 * 3600000, read: false, href: '#/c/aftersales?status=open' },
+      { id: 'msg3', type: 'coupon', title: '你有一张券即将过期', text: '「满 99 减 10」将于 3 天后到期，下单时记得使用。', at: t - 9 * 3600000, read: false, href: '#/c/coupons' },
+      { id: 'msg4', type: 'order', title: '订单已签收', text: '你的订单已签收，满意的话给个评价吧～', at: t - DAY, read: true, href: '#/c/orders?tab=received' },
+      { id: 'msg5', type: 'aftersale', title: '退款已到账（模拟）', text: '售后单已完成退款。演示环境不产生真实资金流水。', at: t - 2 * DAY, read: true, href: '#/c/aftersales?status=done' },
+      { id: 'msg6', type: 'system', title: '演示环境说明', text: '本原型所有数据保存在本机浏览器，支付均为模拟，可随时用顶栏「重置演示数据」恢复。', at: t - 4 * DAY, read: true, href: '#/c/me' },
+      { id: 'msg7', type: 'order', title: '订单已超时关闭', text: '一笔未付款订单超过 30 分钟未支付，已自动关闭，占用库存已释放。', at: t - 5 * DAY, read: true, href: '#/c/orders?tab=closed' },
+      { id: 'msg8', type: 'system', title: '欢迎来到小满商城', text: '这是一份用于交互评审的演示原型，不接后端，不产生真实交易。', at: t - 12 * DAY, read: true, href: '' }
+    ];
+
     return state;
   }
 
@@ -392,12 +413,26 @@
     if (raw) {
       try {
         var s = JSON.parse(raw);
-        if (s && s.v === 3) return s;
+        if (s && s.v === 3) return backfillSocial(s);
       } catch (e) {}
     }
     var fresh = seedState();
     try { localStorage.setItem(KEY, JSON.stringify(fresh)); } catch (e) {}
     return fresh;
+  }
+
+  /* 老数据补字段：界面改版新加的 messages / favorites / follows / footprints。
+     直接复用 seedState() 的种子，保证老浏览器缓存升级后四块数据同样可用。 */
+  function backfillSocial(s) {
+    if (!s.favorites || !s.follows || !s.footprints || !s.messages) {
+      var fresh = seedState();
+      s.favorites = s.favorites || fresh.favorites;
+      s.follows = s.follows || fresh.follows;
+      s.footprints = s.footprints || fresh.footprints;
+      s.messages = s.messages || fresh.messages;
+      try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {}
+    }
+    return s;
   }
   state = load();
 
@@ -1088,6 +1123,88 @@
     };
   }
 
+  /* ---------------- 消息 / 收藏 / 关注 / 足迹（界面改版新增） ---------------- */
+  var MSG_TYPES = [
+    { key: 'all', label: '全部' },
+    { key: 'order', label: '订单' },
+    { key: 'aftersale', label: '售后' },
+    { key: 'coupon', label: '优惠券' },
+    { key: 'system', label: '系统' }
+  ];
+  var MSG_TYPE_NAME = { order: '订单', aftersale: '售后', coupon: '优惠券', system: '系统' };
+
+  function brandName(id) {
+    var list = (state && state.brands) || [];
+    for (var i = 0; i < list.length; i++) { if (list[i].id === id) return list[i].name; }
+    return id;
+  }
+  function messages(type) {
+    var list = (state.messages || []).slice().sort(function (a, b) { return b.at - a.at; });
+    if (type && type !== 'all') list = list.filter(function (m) { return m.type === type; });
+    return list;
+  }
+  function unreadCount(type) {
+    return (state.messages || []).filter(function (m) {
+      return !m.read && (!type || type === 'all' || m.type === type);
+    }).length;
+  }
+  function markRead(id) {
+    (state.messages || []).forEach(function (m) { if (m.id === id) m.read = true; });
+    save();
+    return { ok: true };
+  }
+  function markAllRead(type) {
+    (state.messages || []).forEach(function (m) {
+      if (!type || type === 'all' || m.type === type) m.read = true;
+    });
+    save();
+    return { ok: true };
+  }
+  function favGoods() {
+    return (state.favorites || []).map(function (id) { return goodsOf(id); })
+      .filter(function (g) { return !!g; });
+  }
+  function isFav(goodsId) { return (state.favorites || []).indexOf(goodsId) >= 0; }
+  function toggleFav(goodsId) {
+    var i = (state.favorites || []).indexOf(goodsId);
+    var added;
+    if (i >= 0) { state.favorites.splice(i, 1); added = false; }
+    else { state.favorites.unshift(goodsId); added = true; }
+    save();
+    return { ok: true, added: added, msg: added ? '已收藏' : '已取消收藏' };
+  }
+  function followList() { return (state.follows || []).slice(); }
+  function isFollow(type, id) {
+    return (state.follows || []).some(function (f) { return f.type === type && f.id === id; });
+  }
+  function toggleFollow(type, id) {
+    var idx = -1;
+    (state.follows || []).forEach(function (f, i) { if (f.type === type && f.id === id) idx = i; });
+    var name = type === 'shop' ? '小满商城官方店' : brandName(id);
+    var added;
+    if (idx >= 0) { state.follows.splice(idx, 1); added = false; }
+    else { state.follows.unshift({ type: type, id: id, name: name, at: Date.now() }); added = true; }
+    save();
+    return { ok: true, added: added, msg: added ? '已关注 ' + name : '已取消关注 ' + name };
+  }
+  function footprintList() {
+    return (state.footprints || []).map(function (f) {
+      return { goodsId: f.goodsId, at: f.at, goods: goodsOf(f.goodsId) };
+    }).filter(function (x) { return !!x.goods; });
+  }
+  function addFootprint(goodsId) {
+    if (!goodsOf(goodsId)) return;
+    state.footprints = (state.footprints || []).filter(function (f) { return f.goodsId !== goodsId; });
+    state.footprints.unshift({ goodsId: goodsId, at: Date.now() });
+    if (state.footprints.length > 30) state.footprints.length = 30;   // 只留最近 30 件
+    save();
+  }
+  function clearFootprints() {
+    state.footprints = [];
+    save();
+    return { ok: true, msg: '已清空浏览足迹' };
+  }
+
   function resetAll() {
     state = seedState();
     save();
@@ -1137,6 +1254,12 @@
     asRefund: asRefund, asRetryRestock: asRetryRestock, asCancel: asCancel, asAutoClose: asAutoClose,
     // 评价
     reviewSubmit: reviewSubmit, reviewReply: reviewReply,
+    // 消息 / 收藏 / 关注 / 足迹（界面改版新增）
+    MSG_TYPES: MSG_TYPES, MSG_TYPE_NAME: MSG_TYPE_NAME,
+    messages: messages, unreadCount: unreadCount, markRead: markRead, markAllRead: markAllRead,
+    favGoods: favGoods, isFav: isFav, toggleFav: toggleFav,
+    followList: followList, isFollow: isFollow, toggleFollow: toggleFollow,
+    footprintList: footprintList, addFootprint: addFootprint, clearFootprints: clearFootprints,
     // 后台
     stockRows: stockRows, stockUpdate: stockUpdate, goodsSave: goodsSave, goodsToggle: goodsToggle,
     stats: stats, log: log, resetAll: resetAll

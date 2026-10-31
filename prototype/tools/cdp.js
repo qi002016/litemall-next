@@ -7,29 +7,48 @@ const path = require('path');
 const fs = require('fs');
 
 const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const PORT = 9333;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+/* 每次运行现取一个空闲端口。
+   历史缺陷（L-01）：端口写死 9333 时，若上一轮 headless Chrome 没被回收，
+   新一轮会连到那个遗留实例上（孤儿进程 / 旧页面），表现为 r1 只有 7/15 之类的假失败。
+   现改为向系统申请临时端口，从根上避免"静默复用遗留实例"。 */
+async function freePort() {
+  const net = require('net');
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.unref();
+    srv.on('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      const p = srv.address().port;
+      srv.close(() => resolve(p));
+    });
+  });
+}
+
 async function launch() {
   const profile = path.join(os.tmpdir(), 'verify-cdp-' + Date.now());
+  const PORT = await freePort();
   const child = spawn(CHROME, [
     '--headless=new', '--disable-gpu', '--no-sandbox', '--no-first-run',
     '--remote-debugging-port=' + PORT, '--user-data-dir=' + profile,
     '--window-size=420,900', 'about:blank'
   ], { stdio: 'ignore' });
+  const cleanup = () => { try { child.kill(); } catch (e) {} };
   for (let i = 0; i < 100; i++) {
     try {
       const r = await fetch('http://127.0.0.1:' + PORT + '/json/list');
       if (r.ok) {
         const list = await r.json();
         const page = list.find(t => t.type === 'page');
-        if (page) return { child, profile, wsUrl: page.webSocketDebuggerUrl };
+        if (page) return { child, profile, wsUrl: page.webSocketDebuggerUrl, port: PORT };
       }
     } catch (e) { /* not up yet */ }
     await sleep(150);
   }
-  throw new Error('chrome devtools not reachable');
+  cleanup();
+  throw new Error('chrome devtools not reachable on port ' + PORT);
 }
 
 class Page {

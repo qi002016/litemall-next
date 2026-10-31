@@ -492,6 +492,39 @@
     '</div>';
   }
 
+  /* ===== 界面改版（v3.1）：分类横滚条 / 消息入口 / 工具区 / 淘宝式筛选 ===== */
+  var CAT_EMOJI = { c1: '👕', c2: '🏠', c3: '🎧', c4: '☕', c5: '🏃' };
+  function catEmoji(id) { return CAT_EMOJI[id] || '🛍️'; }
+  function topCats() {
+    return Store.state.cats.filter(function (c) { return !c.parentId; })
+      .slice().sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
+  }
+  /* 首页分类横滚条：单行横滑、隐藏滚动条，末项固定「全部分类」；不参与页面横向溢出 */
+  function catStrip() {
+    var items = topCats().map(function (c) {
+      return '<div class="x-catpill" data-go="#/c/list?catId=' + esc(c.id) + '">' +
+        '<span class="em">' + catEmoji(c.id) + '</span>' + esc(c.name) + '</div>';
+    }).join('');
+    return '<div class="x-catstrip"><div class="x-catstrip-in">' + items +
+      '<div class="x-catpill more" data-go="#/c/category">全部分类 ›</div></div></div>';
+  }
+  /* 消息入口卡（替换原 5 宫格位置） */
+  function msgEntry() {
+    var last = Store.messages()[0];
+    var un = Store.unreadCount();
+    return '<div class="x-msgcard" data-go="#/c/messages">' +
+      '<div class="ic">' + UI.icon('bell', 20) +
+        (un ? '<i class="dot">' + (un > 99 ? '99+' : un) + '</i>' : '') + '</div>' +
+      '<div class="grow" style="min-width:0">' +
+        '<div class="row between"><span class="small bold">消息</span>' +
+          '<span class="tiny dim">' + (last ? UI.fromNow(last.at) : '') + '</span></div>' +
+        '<div class="tiny dim ellipsis mt6">' +
+          (last ? esc(last.title) + ' · ' + esc(last.text) : '暂无消息') + '</div>' +
+      '</div>' +
+      '<div class="tiny dim" style="flex:none">查看全部 ›</div>' +
+    '</div>';
+  }
+
   function itemRow(it, opt) {
     opt = opt || {};
     var refunded = (it.refundedQty || 0) > 0
@@ -513,6 +546,8 @@
     var p = [];
     if (o.kw) p.push('kw=' + encodeURIComponent(o.kw));
     if (o.catId) p.push('catId=' + encodeURIComponent(o.catId));
+    if (o.brandId) p.push('brandId=' + encodeURIComponent(o.brandId));
+    if (o.onlyStock) p.push('onlyStock=1');
     if (o.sort && o.sort !== 'default') p.push('sort=' + encodeURIComponent(o.sort));
     if (o.minP !== '' && o.minP != null && isFinite(Number(o.minP))) p.push('minP=' + Number(o.minP));
     if (o.maxP !== '' && o.maxP != null && isFinite(Number(o.maxP))) p.push('maxP=' + Number(o.maxP));
@@ -615,13 +650,6 @@
   var C_ROUTES = [];
 
   /* ---------------------------- 1. 首页 ---------------------------- */
-  var HOME_KINGKONG = [
-    { emoji: '👕', label: '服饰', href: '#/c/list?catId=c1', bg: '#fff1e8' },
-    { emoji: '🎧', label: '数码', href: '#/c/list?catId=c3', bg: '#eef2ff' },
-    { emoji: '☕', label: '食品', href: '#/c/list?catId=c4', bg: '#fdf3e6' },
-    { emoji: '🎫', label: '领券', href: '#/c/coupons', bg: '#fff0f3' },
-    { emoji: '📦', label: '我的订单', href: '#/c/orders', bg: '#eafaf3' }
-  ];
 
   C_ROUTES.push({
     path: 'home',
@@ -631,13 +659,8 @@
       var b0 = banners[0] || { title: '小满商城', sub: '', bg: '#ff5a1f', emoji: '🛍️' };
       var list = Store.goodsList({});
 
-      var kings = HOME_KINGKONG.map(function (k) {
-        return '<div class="k" data-go="' + k.href + '">' +
-          '<div class="cir" style="background:' + k.bg + '">' + esc(k.emoji) + '</div>' +
-          '<span>' + esc(k.label) + '</span></div>';
-      }).join('');
-
       var html = '<div class="c-page">' +
+        catStrip() +
         '<div class="home-search">' +
           '<div class="logo">小满</div>' +
           '<div class="box" data-go="#/c/search">' + UI.icon('search', 15) +
@@ -655,7 +678,7 @@
           '<div class="notice-bar mt10">' + UI.icon('bell', 14) +
             '<div class="grow">' + esc(st.notice.text) + '</div>' +
             '<span class="tiny dim">' + UI.fromNow(st.notice.at) + '</span></div>' +
-          '<div class="kingkong">' + kings + '</div>' +
+          msgEntry() +
         '</div>' +
         '<div class="c-body" style="padding-top:0">' +
           '<div class="row between" style="margin-bottom:8px">' +
@@ -693,6 +716,65 @@
             idx = (idx + 1) % banners.length;
             paint();
           });
+        }
+      };
+    }
+  });
+
+  /* ---------------------------- 1b. 消息中心 ---------------------------- */
+  C_ROUTES.push({
+    path: 'messages',
+    render: function (ctx) {
+      var tab = ctx.query.type || 'all';
+      if (!Store.MSG_TYPES.some(function (t) { return t.key === tab; })) tab = 'all';
+      var list = Store.messages(tab);
+      var unAll = Store.unreadCount();
+      var tabs = Store.MSG_TYPES.map(function (t) {
+        return { key: t.key, label: t.label, count: Store.unreadCount(t.key) };
+      });
+      var badge = { order: 'info', aftersale: 'warn', coupon: 'danger', system: 'gray' };
+      var body = list.length
+        ? list.map(function (m) {
+            return '<div class="card pad x-msg' + (m.read ? '' : ' unread') + '" data-act="open" data-id="' + esc(m.id) + '">' +
+              '<div class="row between"><span class="tag ' + (badge[m.type] || 'gray') + '">' +
+                esc(Store.MSG_TYPE_NAME[m.type] || m.type) + '</span>' +
+                '<span class="tiny dim">' + UI.fromNow(m.at) + ' · ' + UI.time(m.at) + '</span></div>' +
+              '<div class="row between mt8"><div class="small bold">' + esc(m.title) + '</div>' +
+                (m.read ? '' : '<i class="x-reddot"></i>') + '</div>' +
+              '<div class="tiny dim mt6" style="line-height:1.7">' + esc(m.text) + '</div>' +
+              (m.href ? '<div class="tiny mt8" style="color:var(--brand)">查看详情 ›</div>' : '') +
+            '</div>';
+          }).join('')
+        : UI.empty({
+            icon: '🔔', title: '暂无消息',
+            hint: '订单、售后、优惠券的系统通知都会出现在这里'
+          });
+
+      return {
+        html: '<div class="c-page">' +
+          UI.cHeader({
+            title: '消息',
+            right: unAll
+              ? '<span data-act="readAll">全部已读</span>'
+              : '<span class="dim">已全部读过</span>'
+          }) +
+          tabsMarkup(tabs, tab) +
+          '<div class="c-body" style="padding-top:10px">' + body + '</div>' +
+        '</div>',
+        title: '消息',
+        actions: {
+          otab: function (el) { go('#/c/messages?type=' + el.getAttribute('data-key')); },
+          readAll: function () {
+            Store.markAllRead();
+            toast('已全部标记为已读', 'ok');
+            render();
+          },
+          open: function (el) {
+            var id = el.getAttribute('data-id');
+            var m = Store.messages().filter(function (x) { return x.id === id; })[0];
+            Store.markRead(id);
+            if (m && m.href) go(m.href); else render();
+          }
         }
       };
     }
@@ -806,92 +888,213 @@
     }
   });
 
-  /* ---------------------------- 4. 列表 ---------------------------- */
+  /* ---------------------------- 4. 列表（淘宝式筛选） ---------------------------- */
+  var LIST_SORT = [
+    { key: 'default', label: '综合' },
+    { key: 'sales', label: '销量' },
+    { key: 'price', label: '价格' },
+    { key: 'new', label: '上新' }
+  ];
+  var PRICE_TIPS = [
+    { min: 0, max: 50, label: '0-50' },
+    { min: 50, max: 100, label: '50-100' },
+    { min: 100, max: 200, label: '100-200' },
+    { min: 200, max: '', label: '200 以上' }
+  ];
+
+  /* 商品层只支持 default/priceAsc/priceDesc/new；销量在页面侧后置排序（不改 store.js） */
+  function storeSortOf(sort) {
+    if (sort === 'priceAsc' || sort === 'priceDesc' || sort === 'new') return sort;
+    return 'default';
+  }
+  function listQuery(o) {
+    var opt = { kw: o.kw || '', catId: o.catId || '', sort: storeSortOf(o.sort) };
+    if (o.minP !== '' && o.minP != null && isFinite(Number(o.minP))) opt.minP = Math.round(Number(o.minP) * 100);
+    if (o.maxP !== '' && o.maxP != null && isFinite(Number(o.maxP))) opt.maxP = Math.round(Number(o.maxP) * 100);
+    var list = Store.goodsList(opt);
+    if (o.brandId) list = list.filter(function (g) { return g.brandId === o.brandId; });
+    if (o.onlyStock) list = list.filter(function (g) { return Store.totalStock(g) > 0; });
+    if (o.sort === 'sales') list = list.slice().sort(function (a, b) { return b.sales - a.sales; });
+    return list;
+  }
+  function activeFilterCount(o) {
+    var n = 0;
+    if (o.catId) n++;
+    if (o.brandId) n++;
+    if (o.onlyStock) n++;
+    if ((o.minP !== '' && o.minP != null) || (o.maxP !== '' && o.maxP != null)) n++;
+    return n;
+  }
+
   C_ROUTES.push({
     path: 'list',
     render: function (ctx) {
       var q = ctx.query;
       var kw = q.kw || '';
       var catId = q.catId || '';
+      var brandId = q.brandId || '';
+      var onlyStock = q.onlyStock === '1';
       var sort = q.sort || 'default';
+      if (['default', 'sales', 'priceAsc', 'priceDesc', 'new'].indexOf(sort) < 0) sort = 'default';
       var minP = (q.minP === undefined || q.minP === '') ? '' : Number(q.minP);
       var maxP = (q.maxP === undefined || q.maxP === '') ? '' : Number(q.maxP);
       var swapped = false;
       if (minP !== '' && maxP !== '' && isFinite(minP) && isFinite(maxP) && minP > maxP) {
-        var t = minP; minP = maxP; maxP = t; swapped = true;   // BR-SEARCH-05：自动交换
+        var t = minP; minP = maxP; maxP = t; swapped = true;   // BR-SEARCH-05：上下限自动交换
       }
-      var opt = { kw: kw, catId: catId, sort: sort };
-      if (minP !== '' && isFinite(minP)) opt.minP = Math.round(minP * 100);
-      if (maxP !== '' && isFinite(maxP)) opt.maxP = Math.round(maxP * 100);
-      var list = Store.goodsList(opt);
 
-      var catOpts = '<option value="">全部分类</option>';
-      Store.state.cats.filter(function (c) { return !c.parentId; }).forEach(function (top) {
-        catOpts += '<option value="' + esc(top.id) + '"' + (catId === top.id ? ' selected' : '') + '>' + esc(top.name) + '</option>';
-        Store.state.cats.filter(function (c) { return c.parentId === top.id; }).forEach(function (kid) {
-          catOpts += '<option value="' + esc(kid.id) + '"' + (catId === kid.id ? ' selected' : '') + '>　' + esc(kid.name) + '</option>';
-        });
-      });
+      var cond = { kw: kw, catId: catId, brandId: brandId, onlyStock: onlyStock, sort: sort, minP: minP, maxP: maxP };
+      var list = listQuery(cond);
+      var fCount = activeFilterCount(cond);
+      var head = kw ? '「' + kw + '」的结果'
+        : (catId ? catName(catId) : (brandId ? brandName(brandId) : '全部商品'));
 
-      var sortItems = [
-        { key: 'default', label: '综合' },
-        { key: 'priceAsc', label: '价格 ↑' },
-        { key: 'priceDesc', label: '价格 ↓' },
-        { key: 'new', label: '上新' }
-      ];
+      var chips = LIST_SORT.map(function (s) {
+        var on = s.key === 'price'
+          ? (sort === 'priceAsc' || sort === 'priceDesc')
+          : (sort === s.key);
+        var label = s.label + (s.key === 'price'
+          ? (sort === 'priceDesc' ? ' ↓' : (sort === 'priceAsc' ? ' ↑' : ''))
+          : '');
+        return '<button class="x-chip' + (on ? ' on' : '') + '" data-act="sort" data-key="' + s.key + '">' +
+          esc(label) + '</button>';
+      }).join('') +
+        '<button class="x-chip' + (onlyStock ? ' on' : '') + '" data-act="stock">仅看有货</button>';
 
-      var head = kw ? '「' + kw + '」的结果' : (catId ? catName(catId) : '全部商品');
+      var filterBtn = '<button class="x-filter-btn' + (fCount ? ' on' : '') + '" data-act="filter">' +
+        UI.icon('filter', 14) + '<span>筛选</span>' +
+        (fCount ? '<span class="n">' + fCount + '</span>' : '') + '</button>';
 
-      var rows = list.map(function (g) {
-        var soldOut = Store.totalStock(g) <= 0;
-        return '<div class="item" data-go="#/c/goods/' + esc(g.id) + '">' +
-          UI.thumb(g.pics[0], g.pics[1]) +
-          '<div class="grow">' +
-            '<div class="bold clamp2" style="font-size:13.5px">' + esc(g.name) +
-              (soldOut ? ' <span class="tag gray">缺货</span>' : '') + '</div>' +
-            '<div class="tiny dim mt6 clamp2">' + esc(g.brief) + '</div>' +
-            '<div class="row between mt8">' + price(Store.displayPrice(g), 'price-md') +
-              '<span class="tiny dim">已售 ' + g.sales + '</span></div>' +
-          '</div>' +
-        '</div>';
-      }).join('');
+      var body = list.length
+        ? '<div class="goods-grid">' + list.map(goodsCard).join('') + '</div>'
+        : UI.empty({
+            icon: '🔍', title: '没有找到相关商品',
+            hint: '当前筛选：' + esc(kw || '无关键词') + ' · ' + esc(catId ? catName(catId) : '全部分类') +
+              (brandId ? ' · ' + esc(brandName(brandId)) : '') +
+              '<br>试试换个关键词，或放宽价格区间 / 品牌',
+            action: '<button class="btn primary" data-act="clearAll">清除筛选</button>'
+          });
 
       var html = '<div class="c-page">' + UI.cHeader({ title: '商品列表' }) +
-        '<div class="pad" style="padding-bottom:0">' +
-          '<div class="row between"><div class="bold">' + esc(head) + '</div>' +
-            '<span class="tiny dim">共 ' + list.length + ' 件</span></div>' +
-          '<div class="row mt8" style="gap:6px">' +
-            '<input class="x-price-in" id="f-min" placeholder="最低价" value="' + (minP === '' ? '' : minP) + '" />' +
-            '<span class="dim">—</span>' +
-            '<input class="x-price-in" id="f-max" placeholder="最高价" value="' + (maxP === '' ? '' : maxP) + '" data-enter="applyPrice" />' +
-            '<span class="tiny dim">元</span>' +
-            '<button class="btn sm" data-act="applyPrice">确定</button>' +
-            '<button class="btn sm ghost" data-act="clearAll">清除</button>' +
-          '</div>' +
-          '<select class="x-sel mt8" id="f-cat">' + catOpts + '</select>' +
-          (swapped ? '<div class="tiny" style="color:var(--warn);margin-top:6px">价格区间上下限已自动交换（BR-SEARCH-05）</div>' : '') +
+        '<div class="pad" style="padding-bottom:2px">' +
+          '<div class="row between"><div class="bold ellipsis">' + esc(head) + '</div>' +
+            '<span class="tiny dim" style="flex:none">共 ' + list.length + ' 件</span></div>' +
+          (swapped ? '<div class="tiny mt6" style="color:var(--warn)">价格区间上下限已自动交换（BR-SEARCH-05）</div>' : '') +
         '</div>' +
-        UI.tabs(sortItems, sort, 'sort') +
-        '<div class="c-body">' +
-          (list.length
-            ? '<div class="grow-list">' + rows + '</div>'
-            : UI.empty({
-                icon: '🔍', title: '没有找到相关商品',
-                hint: '当前筛选：' + esc(kw || '无关键词') + ' · ' + esc(catId ? catName(catId) : '全部分类') +
-                  '<br>试试换个关键词或放宽价格区间',
-                action: '<button class="btn primary" data-act="clearAll">清除筛选</button>'
-              })) +
+        '<div class="x-listbar">' +
+          '<div class="x-chips">' + chips + '</div>' + filterBtn +
         '</div>' +
+        '<div class="c-body">' + body + '</div>' +
       '</div>';
 
-      function apply() {
-        var mn = document.getElementById('f-min');
-        var mx = document.getElementById('f-max');
-        go(listUrl({
-          kw: kw, catId: catId, sort: sort,
-          minP: mn ? mn.value.trim() : '',
-          maxP: mx ? mx.value.trim() : ''
-        }));
+      /* 筛选 sheet：草稿条件改动即刷新「查看 N 件商品」，点应用才写回 URL */
+      function openFilter() {
+        var d = { min: minP === '' ? '' : String(minP), max: maxP === '' ? '' : String(maxP), catId: catId, brandId: brandId, onlyStock: onlyStock };
+        var catsHtml = topCats().map(function (c) {
+          return '<div class="x-chip' + (d.catId === c.id ? ' on' : '') + '" data-fcat="' + esc(c.id) + '">' +
+            esc(c.name) + '</div>';
+        }).join('');
+        var brandsHtml = (Store.state.brands || []).map(function (b) {
+          return '<div class="x-chip' + (d.brandId === b.id ? ' on' : '') + '" data-fbrand="' + esc(b.id) + '">' +
+            esc(b.name) + '</div>';
+        }).join('');
+        function quickOn(p) {
+          var mn = d.min === '' ? 0 : Number(d.min);
+          var mx = d.max === '' ? Infinity : Number(d.max);
+          var want = p.max === '' ? Infinity : p.max;
+          return (isFinite(mn) ? mn : 0) === p.min && mx === want;
+        }
+        var tipsHtml = PRICE_TIPS.map(function (p, i) {
+          return '<div class="x-chip' + (quickOn(p) ? ' on' : '') + '" data-fq="' + i + '">' + esc(p.label) + '</div>';
+        }).join('');
+        var bodyHtml =
+          '<div class="x-fsec"><div class="x-fhd">价格区间（元）</div>' +
+            '<div class="row" style="gap:8px">' +
+              '<input class="input" id="fx-min" inputmode="numeric" placeholder="最低价" value="' + esc(d.min) + '" />' +
+              '<span class="dim">—</span>' +
+              '<input class="input" id="fx-max" inputmode="numeric" placeholder="最高价" value="' + esc(d.max) + '" />' +
+            '</div>' +
+            '<div class="x-chips mt10">' + tipsHtml + '</div>' +
+            '<div class="tiny dim mt8">上下限填反了会自动交换（BR-SEARCH-05）</div>' +
+          '</div>' +
+          '<div class="x-fsec"><div class="x-fhd">分类</div><div class="x-chips">' +
+            '<div class="x-chip' + (d.catId ? '' : ' on') + '" data-fcat="">全部</div>' + catsHtml +
+          '</div></div>' +
+          '<div class="x-fsec"><div class="x-fhd">品牌</div><div class="x-chips">' +
+            '<div class="x-chip' + (d.brandId ? '' : ' on') + '" data-fbrand="">不限</div>' + brandsHtml +
+          '</div></div>' +
+          '<div class="x-fsec"><div class="row between" data-fstock>' +
+            '<div class="x-fhd" style="margin:0">仅看有货</div>' +
+            '<div class="cbx' + (d.onlyStock ? ' on' : '') + '" id="fx-stock"></div></div></div>' +
+          '<div class="x-fft">' +
+            '<button class="btn ghost" id="fx-reset">重置</button>' +
+            '<button class="btn primary" id="fx-apply">查看 ' + listQuery({ kw: kw, catId: d.catId, brandId: d.brandId, onlyStock: d.onlyStock, sort: sort, minP: d.min, maxP: d.max }).length + ' 件商品</button>' +
+          '</div>';
+
+        UI.sheet({
+          title: '筛选',
+          mid: false,                      // 底部弹出（.overlay 默认 flex-end）
+          body: bodyHtml,
+          onMount: function (ov, close) {
+            var minEl = ov.querySelector('#fx-min');
+            var maxEl = ov.querySelector('#fx-max');
+            var cntEl = ov.querySelector('#fx-apply');
+            var stockEl = ov.querySelector('#fx-stock');
+            function paint() {
+              each(ov.querySelectorAll('[data-fcat]'), function (el) {
+                el.className = 'x-chip' + (d.catId === el.getAttribute('data-fcat') ? ' on' : '');
+              });
+              each(ov.querySelectorAll('[data-fbrand]'), function (el) {
+                el.className = 'x-chip' + (d.brandId === el.getAttribute('data-fbrand') ? ' on' : '');
+              });
+              each(ov.querySelectorAll('[data-fq]'), function (el) {
+                var p = PRICE_TIPS[Number(el.getAttribute('data-fq'))];
+                el.className = 'x-chip' + (quickOn(p) ? ' on' : '');
+              });
+              if (stockEl) stockEl.className = 'cbx' + (d.onlyStock ? ' on' : '');
+              var n = listQuery({
+                kw: kw, catId: d.catId, brandId: d.brandId,
+                onlyStock: d.onlyStock, sort: sort, minP: d.min, maxP: d.max
+              }).length;
+              if (cntEl) cntEl.textContent = '查看 ' + n + ' 件商品';
+            }
+            ov.addEventListener('click', function (e) {
+              var t = e.target.closest ? e.target.closest('[data-fq],[data-fcat],[data-fbrand],[data-fstock],#fx-reset,#fx-apply') : null;
+              if (!t) return;
+              if (t.hasAttribute('data-fq')) {
+                var p = PRICE_TIPS[Number(t.getAttribute('data-fq'))];
+                if (quickOn(p)) { d.min = ''; d.max = ''; }
+                else {
+                  d.min = p.min === 0 ? '' : String(p.min);
+                  d.max = p.max === '' ? '' : String(p.max);
+                }
+                if (minEl) minEl.value = d.min;
+                if (maxEl) maxEl.value = d.max;
+                paint();
+                return;
+              }
+              if (t.hasAttribute('data-fcat')) { d.catId = t.getAttribute('data-fcat'); paint(); return; }
+              if (t.hasAttribute('data-fbrand')) { d.brandId = t.getAttribute('data-fbrand'); paint(); return; }
+              if (t.hasAttribute('data-fstock')) { d.onlyStock = !d.onlyStock; paint(); return; }
+              if (t.id === 'fx-reset') {
+                d.min = ''; d.max = ''; d.catId = ''; d.brandId = ''; d.onlyStock = false;
+                if (minEl) minEl.value = '';
+                if (maxEl) maxEl.value = '';
+                paint();
+                return;
+              }
+              if (t.id === 'fx-apply') {
+                go(listUrl({
+                  kw: kw, catId: d.catId, brandId: d.brandId, onlyStock: d.onlyStock,
+                  sort: sort, minP: d.min, maxP: d.max
+                }));
+                close();
+              }
+            });
+            if (minEl) minEl.addEventListener('input', function () { d.min = minEl.value.trim(); paint(); });
+            if (maxEl) maxEl.addEventListener('input', function () { d.max = maxEl.value.trim(); paint(); });
+          }
+        });
       }
 
       return {
@@ -899,16 +1102,13 @@
         title: '商品列表',
         actions: {
           sort: function (el) {
-            go(listUrl({ kw: kw, catId: catId, sort: el.getAttribute('data-key'), minP: minP, maxP: maxP }));
+            var k = el.getAttribute('data-key');
+            var next = k === 'price' ? (sort === 'priceAsc' ? 'priceDesc' : 'priceAsc') : k;
+            go(listUrl(mix(cond, { sort: next })));
           },
-          applyPrice: apply,
+          stock: function () { go(listUrl(mix(cond, { onlyStock: !onlyStock }))); },
+          filter: openFilter,
           clearAll: function () { go('#/c/list'); }
-        },
-        mount: function (root) {
-          var sel = root.querySelector('#f-cat');
-          if (sel) sel.addEventListener('change', function () {
-            go(listUrl({ kw: kw, catId: sel.value, sort: sort, minP: minP, maxP: maxP }));
-          });
         }
       };
     }
@@ -933,6 +1133,11 @@
         };
       }
 
+      /* 足迹：只有「不是最近一条」时才写入，避免每次局部重渲染都重复记账 */
+      var fpTop = Store.footprintList()[0];
+      if (!fpTop || fpTop.goodsId !== g.id) Store.addFootprint(g.id);
+
+      var faved = Store.isFav(g.id);
       var dims = specDims(g);
       var sel = goodsSel(g);
       var sku = findSkuBySel(g, sel);
@@ -990,7 +1195,8 @@
 
       var actionHtml = '<div class="row" style="flex:none;gap:2px;text-align:center">' +
           '<div data-act="service" style="font-size:10.5px;color:var(--text-2);padding:0 8px">' + UI.icon('comment', 19) + '<div>客服</div></div>' +
-          '<div data-act="fav" style="font-size:10.5px;color:var(--text-2);padding:0 8px">' + UI.icon('star', 19) + '<div>收藏</div></div>' +
+          '<div data-act="fav" style="font-size:10.5px;color:' + (faved ? 'var(--brand)' : 'var(--text-2)') + ';padding:0 8px">' +
+            UI.icon('star', 19) + '<div>' + (faved ? '已收藏' : '收藏') + '</div></div>' +
         '</div>' +
         '<button class="btn" data-act="addCart" style="flex:1">加入购物车</button>' +
         '<button class="btn primary" data-act="buyNow" style="flex:1">立即购买</button>';
@@ -1107,7 +1313,10 @@
             go('#/c/checkout');
           },
           service: function () { toast('客服为占位入口（需求未定义会话能力）'); },
-          fav: function () { toast('收藏是 R3 加分项，本期原型未启用'); },
+          fav: function () {
+            okToast(Store.toggleFav(g.id));
+            render();
+          },
           share: function () { toast('分享为占位入口'); }
         }
       };
@@ -1741,7 +1950,7 @@
 
       return {
         html: '<div class="c-page">' +
-          UI.cHeader({ title: '我的订单', noBack: true, right: '<span data-go="#/c/me">我的</span>' }) +
+          UI.cHeader({ title: '我的订单', right: '<span data-go="#/c/me">我的</span>' }) +
           tabsMarkup(tabs, tab) +
           '<div class="c-body">' + body + '</div>' +
         '</div>',
@@ -2223,7 +2432,7 @@
 
       return {
         html: '<div class="c-page">' +
-          UI.cHeader({ title: '我的售后', noBack: !orderId }) +
+          UI.cHeader({ title: '我的售后' }) +
           tabsMarkup(tabs, f) +
           '<div class="c-body">' + body + '</div>' +
         '</div>',
@@ -2371,6 +2580,18 @@
       ];
       var mine = Store.myCoupons();
       var unused = mine.filter(function (x) { return x.status === 'unused'; }).length;
+      var tools = [
+        { label: '收藏', icon: 'star', n: Store.favGoods().length, href: '#/c/favorites' },
+        { label: '关注店铺', icon: 'shop', n: Store.followList().length, href: '#/c/follows' },
+        { label: '足迹', icon: 'clock', n: Store.footprintList().length, href: '#/c/footprints' },
+        { label: '我的优惠券', icon: 'tag', n: unused, href: '#/c/coupons' }
+      ];
+      var toolsHtml = '<div class="x-tools" style="margin-top:-12px">' + tools.map(function (t) {
+        return '<div class="x-tool" data-go="' + t.href + '">' +
+          '<div class="ic">' + UI.icon(t.icon, 21) +
+            (t.n ? '<i class="n">' + (t.n > 99 ? '99+' : t.n) + '</i>' : '') + '</div>' +
+          '<div class="tiny mt6">' + esc(t.label) + '</div></div>';
+      }).join('') + '</div>';
 
       var html = '<div class="c-page">' +
         '<div class="c-head" style="background:linear-gradient(135deg,#ff5a1f,#ff2e4d);color:#fff;border:0">' +
@@ -2388,7 +2609,8 @@
             '<span>积分 1280</span></div>' +
         '</div>' +
         '<div class="c-body" style="padding-top:0">' +
-          '<div class="card pad" style="margin-top:-12px">' +
+          toolsHtml +
+          '<div class="card pad mt10">' +
             '<div class="row between"><span class="small bold">我的订单</span>' +
               '<span class="tiny dim" data-go="#/c/orders">全部订单 ›</span></div>' +
             '<div class="row mt12" style="justify-content:space-between">' +
@@ -2432,6 +2654,136 @@
       '</div>';
 
       return { html: html, tab: 'me', title: '我的' };
+    }
+  });
+
+  /* ---------------------------- 15b. 我的收藏 ---------------------------- */
+  C_ROUTES.push({
+    path: 'favorites',
+    render: function () {
+      var list = Store.favGoods();
+      var body = list.length
+        ? '<div class="goods-grid">' + list.map(function (g) {
+            return '<div class="x-fav">' + goodsCard(g) +
+              '<button class="x-fav-del" data-act="unfav" data-id="' + esc(g.id) + '">取消收藏</button>' +
+            '</div>';
+          }).join('') + '</div>'
+        : UI.empty({
+            icon: '⭐', title: '还没有收藏商品',
+            hint: '在商品详情页点「收藏」，就能在这里快速找回',
+            action: '<button class="btn primary" data-go="#/c/home">去逛逛</button>'
+          });
+      return {
+        html: '<div class="c-page">' +
+          UI.cHeader({ title: '我的收藏', right: '共 ' + list.length + ' 件' }) +
+          '<div class="c-body">' + body + '</div></div>',
+        title: '我的收藏',
+        actions: {
+          unfav: function (el) {
+            okToast(Store.toggleFav(el.getAttribute('data-id')));
+            render();
+          }
+        }
+      };
+    }
+  });
+
+  /* ---------------------------- 15c. 关注店铺 / 品牌 ---------------------------- */
+  C_ROUTES.push({
+    path: 'follows',
+    render: function () {
+      var shopOn = Store.isFollow('shop', 'shop1');
+      var brandRows = (Store.state.brands || []).map(function (b) {
+        var n = Store.state.goods.filter(function (g) { return g.brandId === b.id && g.onSale; }).length;
+        return { b: b, n: n };
+      });
+      var folBrands = Store.followList().filter(function (f) { return f.type === 'brand'; }).length;
+      function followBtn(type, id, on) {
+        return '<button class="btn sm ' + (on ? 'ghost' : 'primary') + '" data-act="follow" ' +
+          'data-type="' + type + '" data-id="' + esc(id) + '">' + (on ? '已关注' : '+ 关注') + '</button>';
+      }
+      var body = '<div class="x-shopcard">' +
+          '<div class="avatar">🏪</div>' +
+          '<div class="grow" style="min-width:0"><div class="bold">小满商城官方店</div>' +
+            '<div class="tiny dim mt6">自营 · 全品类 · 在售 ' + Store.goodsList({}).length + ' 件</div></div>' +
+          followBtn('shop', 'shop1', shopOn) +
+        '</div>' +
+        '<div class="row between mt16"><div class="small bold">品牌（' + brandRows.length + ' 个）</div>' +
+          '<div class="tiny dim">已关注品牌 ' + folBrands + ' 个</div></div>' +
+        brandRows.map(function (x) {
+          return '<div class="x-follow-row">' +
+            '<div class="grow" style="min-width:0"><div class="small bold">' + esc(x.b.name) + '</div>' +
+              '<div class="tiny dim mt6">在售 ' + x.n + ' 件</div></div>' +
+            followBtn('brand', x.b.id, Store.isFollow('brand', x.b.id)) +
+          '</div>';
+        }).join('');
+      return {
+        html: '<div class="c-page">' + UI.cHeader({ title: '关注店铺 / 品牌' }) +
+          '<div class="c-body">' + body + '</div></div>',
+        title: '关注店铺',
+        actions: {
+          follow: function (el) {
+            okToast(Store.toggleFollow(el.getAttribute('data-type'), el.getAttribute('data-id')));
+            render();
+          }
+        }
+      };
+    }
+  });
+
+  /* ---------------------------- 15d. 浏览足迹 ---------------------------- */
+  function fpGroupName(at) {
+    var now = new Date();
+    var today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    if (at >= today) return '今天';
+    if (at >= today - 86400000) return '昨天';
+    return '更早';
+  }
+  C_ROUTES.push({
+    path: 'footprints',
+    render: function () {
+      var list = Store.footprintList();
+      var groups = ['今天', '昨天', '更早'].map(function (name) {
+        var arr = list.filter(function (x) { return fpGroupName(x.at) === name; });
+        if (!arr.length) return '';
+        return '<div class="x-fp-group"><div class="tiny dim" style="padding:0 2px 8px">' +
+          name + '（' + arr.length + '）</div>' +
+          arr.map(function (x) {
+            var g = x.goods;
+            return '<div class="card pad x-fp" data-go="#/c/goods/' + esc(g.id) + '">' +
+              UI.thumb(g.pics[0], g.pics[1], 'sm') +
+              '<div class="grow" style="min-width:0">' +
+                '<div class="small bold clamp2">' + esc(g.name) + '</div>' +
+                '<div class="row between mt8">' + price(Store.displayPrice(g), 'price-md') +
+                  '<span class="tiny dim">' + UI.time(x.at) + '</span></div>' +
+              '</div></div>';
+          }).join('') + '</div>';
+      }).join('');
+      var body = list.length ? groups
+        : UI.empty({
+            icon: '👣', title: '还没有浏览记录',
+            hint: '看过的商品会按「今天 / 昨天 / 更早」自动分组，最多保留 30 件',
+            action: '<button class="btn primary" data-go="#/c/home">去逛逛</button>'
+          });
+      return {
+        html: '<div class="c-page">' +
+          UI.cHeader({
+            title: '浏览足迹',
+            right: list.length ? '<span data-act="clear">清空</span>' : '<span class="dim">共 0 件</span>'
+          }) +
+          '<div class="c-body">' + body + '</div></div>',
+        title: '浏览足迹',
+        actions: {
+          clear: function () {
+            UI.confirm({ title: '清空足迹', body: '将清空本机的全部浏览记录（最多 30 件），此操作不可撤销。', danger: true, okText: '清空' })
+              .then(function (ok) {
+                if (!ok) return;
+                okToast(Store.clearFootprints());
+                render();
+              });
+          }
+        }
+      };
     }
   });
 
