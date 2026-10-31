@@ -49,3 +49,9 @@ node_modules/
 .DS_Store
 Thumbs.db
 HELP.md
+
+### 页面原型（prototype/）###
+# 自检产物：截图、临时页、一次性探针脚本，只在本机保留，不入库
+prototype/.shots/
+# 自检脚本跑出来的结果文件
+prototype/tools/*.json
