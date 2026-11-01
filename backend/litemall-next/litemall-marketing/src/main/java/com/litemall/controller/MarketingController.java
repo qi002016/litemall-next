@@ -7,12 +7,11 @@ import com.litemall.domain.VO.AdVO;
 import com.litemall.domain.VO.CouponReceiveResultVO;
 import com.litemall.domain.VO.CouponUserVO;
 import com.litemall.domain.VO.CouponVO;
-import com.litemall.domain.VO.GrouponRuleVO;
 import com.litemall.domain.VO.NoticeVO;
 import com.litemall.domain.VO.TopicVO;
+import com.litemall.domain.VO.UsableCouponsVO;
 import com.litemall.service.IAdService;
 import com.litemall.service.ICouponService;
-import com.litemall.service.IGrouponRuleService;
 import com.litemall.service.INoticeService;
 import com.litemall.service.ITopicService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -22,6 +21,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -34,7 +34,6 @@ public class MarketingController {
 
     private final IAdService adService;
     private final ICouponService couponService;
-    private final IGrouponRuleService grouponRuleService;
     private final ITopicService topicService;
     private final INoticeService noticeService;
 
@@ -64,9 +63,16 @@ public class MarketingController {
         return Result.ok(couponService.getCouponUserList(pageNum, pageSize, status));
     }
 
-    @GetMapping("/groupon/list")
-    public Result<PageVO<GrouponRuleVO>> getGrouponList(Integer pageNum, Integer pageSize) {
-        return Result.ok(grouponRuleService.getGrouponList(pageNum, pageSize));
+    /**
+     * CN-19：可用券试算（只读，不占券）。
+     * <p>
+     * goodsAmount 为商品金额（整数分，不含运费）；缺失/负数 → 400 PARAM_INVALID。
+     * </p>
+     */
+    @GetMapping("/coupon/usable")
+    public Result<UsableCouponsVO> getUsableCoupons(
+            @RequestParam(value = "goodsAmount", required = false) Integer goodsAmount) {
+        return Result.ok(couponService.getUsableCoupons(goodsAmount));
     }
 
     @GetMapping("/topic/list")

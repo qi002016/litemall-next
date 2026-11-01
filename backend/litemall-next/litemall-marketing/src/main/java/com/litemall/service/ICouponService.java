@@ -6,6 +6,7 @@ import com.litemall.domain.PageVO;
 import com.litemall.domain.VO.CouponReceiveResultVO;
 import com.litemall.domain.VO.CouponUserVO;
 import com.litemall.domain.VO.CouponVO;
+import com.litemall.domain.VO.UsableCouponsVO;
 
 import java.math.BigDecimal;
 
@@ -50,6 +51,18 @@ public interface ICouponService extends IService<Coupon> {
      * @return 优惠券用户列表
      */
     PageVO<CouponUserVO> getCouponUserList(Integer pageNum, Integer pageSize, String status);
+
+    /**
+     * 可用券试算（CN-19，C 端只读，不占券）
+     * <p>
+     * 按「我的券」逐张判定在 goodsAmount 下能否使用，并给出不可用原因与本次可抵扣金额；
+     * 排序为「可用在前 → 券面额降序 → 到期时间升序」。
+     * </p>
+     *
+     * @param goodsAmountCents 商品金额（整数分，不含运费，≥0）
+     * @return 试算结果；无券时 coupons 为 []
+     */
+    UsableCouponsVO getUsableCoupons(Integer goodsAmountCents);
 
     /**
      * 优惠券抵扣试算（内部接口，供订单服务调用）

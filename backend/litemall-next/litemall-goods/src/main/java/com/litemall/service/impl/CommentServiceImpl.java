@@ -12,6 +12,7 @@ import com.litemall.domain.dto.UserInfoDTO;
 import com.litemall.exception.BadRequestException;
 import com.litemall.mapper.CommentMapper;
 import com.litemall.service.ICommentService;
+import com.litemall.support.GoodsSupport;
 import com.litemall.utils.BeanUtils;
 import com.litemall.utils.UserContext;
 import lombok.RequiredArgsConstructor;
@@ -45,9 +46,11 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         }
         Page<Comment> page = new Page<>(pageNum, pageSize);
         // 1.分页查询商品评论(type=0 商品评论, value_id=商品ID)
+        //    只返回 status=0（显示）的评价；status=1（隐藏）由后台管理隐藏，C 端不可见（D-11）
         Page<Comment> p = lambdaQuery()
                 .eq(Comment::getValueId, goodsId)
                 .eq(Comment::getType, 0)
+                .eq(Comment::getStatus, 0)
                 .eq(Comment::getDeleted, false)
                 .orderByDesc(Comment::getAddTime)
                 .page(page);
@@ -58,18 +61,33 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         // 2.通过Feign客户端跨服务批量查询评论用户信息(昵称/头像)
         Set<Long> userIds = comments.stream()
                 .map(c -> c.getUserId())
+                .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toSet());
-        List<UserInfoDTO> userInfos = userClient.listUserByIds(List.copyOf(userIds));
+        List<UserInfoDTO> userInfos = userIds.isEmpty() ? List.of()
+                : userClient.listUserByIds(List.copyOf(userIds));
         Map<Long, UserInfoDTO> userMap = userInfos == null ? Map.of()
                 : userInfos.stream()
-                .collect(Collectors.toMap(UserInfoDTO::getId, Function.identity()));
+                .collect(Collectors.toMap(UserInfoDTO::getId, Function.identity(), (a, b) -> a));
         // 3.组装VO
         List<CommentVO> voList = comments.stream().map(c -> {
-            CommentVO vo = BeanUtils.copyBean(c, CommentVO.class);
+            // 手工装配：addTime/replyTime 需要转成 yyyy-MM-dd HH:mm:ss 字符串，
+            // 用 BeanUtils.copyBean 会依赖 Hutool 的类型推断，时间字段行为不确定
+            CommentVO vo = new CommentVO();
+            vo.setId(c.getId());
+            vo.setContent(c.getContent());
+            vo.setStar(c.getStar());
             // picUrls JSON数组字符串 -> String[]
             if (StringUtils.hasText(c.getPicUrls())) {
                 vo.setPicUrls(JSONUtil.toList(c.getPicUrls(), String.class).toArray(new String[0]));
+                vo.setHasPicture(true);
+            } else {
+                vo.setPicUrls(new String[0]);
+                vo.setHasPicture(Boolean.TRUE.equals(c.getHasPicture()));
             }
+            // 时间统一 yyyy-MM-dd HH:mm:ss（06 §1.3 出参口径）
+            vo.setAddTime(GoodsSupport.formatTime(c.getAddTime()));
+            vo.setReplyTime(GoodsSupport.formatTime(c.getReplyTime()));
+            vo.setAdminContent(c.getAdminContent());
             UserInfoDTO user = userMap.get(c.getUserId());
             if (user != null) {
                 vo.setNickname(user.getNickname());

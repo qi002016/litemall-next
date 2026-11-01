@@ -2,6 +2,7 @@ package com.litemall.service.impl;
 
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.crypto.digest.DigestUtil;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -9,30 +10,54 @@ import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.litemall.client.GoodsClient;
 import com.litemall.client.MarketingClient;
 import com.litemall.client.UserClient;
+import com.litemall.constant.AftersaleStatus;
+import com.litemall.constant.OrderStatus;
 import com.litemall.constant.RedisKeys;
+import com.litemall.domain.DTO.OrderConfirmDTO;
 import com.litemall.domain.DTO.OrderSubmitDTO;
+import com.litemall.domain.PO.Aftersale;
 import com.litemall.domain.PO.Cart;
 import com.litemall.domain.PO.Order;
 import com.litemall.domain.PO.OrderGoods;
+import com.litemall.domain.PO.OrderLog;
 import com.litemall.domain.PageVO;
+import com.litemall.domain.VO.OrderAftersaleBriefVO;
+import com.litemall.domain.VO.OrderConfirmLineVO;
+import com.litemall.domain.VO.OrderConfirmVO;
+import com.litemall.domain.VO.OrderDetailLineVO;
 import com.litemall.domain.VO.OrderDetailVO;
 import com.litemall.domain.VO.OrderGoodsVO;
 import com.litemall.domain.VO.OrderListItemVO;
 import com.litemall.domain.VO.OrderSubmitVO;
+import com.litemall.domain.VO.OrderTimelineVO;
 import com.litemall.domain.dto.AddressInfoDTO;
+import com.litemall.domain.dto.CloseExpiredResultDTO;
 import com.litemall.domain.dto.CouponCheckDTO;
 import com.litemall.domain.dto.CouponUseDTO;
+import com.litemall.domain.dto.DeductBatchResultDTO;
 import com.litemall.domain.dto.GoodsProductInfoDTO;
+import com.litemall.domain.dto.LockedStockDTO;
 import com.litemall.domain.dto.OrderAdminDTO;
+import com.litemall.domain.dto.OrderAdminDetailDTO;
 import com.litemall.domain.dto.OrderAdminStatsDTO;
-import com.litemall.domain.dto.OrderRefundDTO;
+import com.litemall.domain.dto.OrderCloseDTO;
+import com.litemall.domain.dto.OrderGoodsStatusDTO;
 import com.litemall.domain.dto.OrderShipDTO;
+import com.litemall.domain.dto.PaySuccessDTO;
+import com.litemall.domain.dto.PaySuccessResultDTO;
 import com.litemall.domain.dto.StockChangeDTO;
 import com.litemall.exception.BadRequestException;
+import com.litemall.exception.ConflictException;
+import com.litemall.exception.NotFoundException;
+import com.litemall.exception.UnauthorizedException;
+import com.litemall.mapper.AftersaleMapper;
 import com.litemall.mapper.CartMapper;
 import com.litemall.mapper.OrderGoodsMapper;
+import com.litemall.mapper.OrderLogMapper;
 import com.litemall.mapper.OrderMapper;
 import com.litemall.service.IOrderService;
+import com.litemall.support.Money;
+import com.litemall.support.OrderRules;
 import com.litemall.utils.UserContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,14 +69,17 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -59,7 +87,21 @@ import java.util.stream.Collectors;
 
 /**
  * <p>
- * 订单表 服务实现类
+ * 订单表 服务实现类（R1：锁量下单、状态机 CAS、三种关闭统一释放、后台订单域收口）
+ * </p>
+ * <p>
+ * 关键口径（docs/impl/03-R1实施口径.md / 07 接口契约 v4）：
+ * <ul>
+ *   <li><b>下单只锁量不扣库存</b>：提交订单只落订单行（{@code order_status=101} 即锁定量来源），
+ *       实扣唯一时点是支付成功（CI-97 markPaid）；库存快照卖不卖得动由 goods 侧
+ *       {@code number − locked} 派生，本服务不加任何 locked 列。</li>
+ *   <li><b>三种关闭同一套动作</b>：CI-85 用户取消 / CN-11 超时 / CN-10 运营关单，都走
+ *       {@link #closeUnpaidOrder}：CAS 101→103 + {@code close_type} + {@code end_time} + 释放锁量与券。</li>
+ *   <li><b>状态跃迁一律 CAS</b>（{@code eq(order_status, X)} 条件更新），affected=0 → 409，
+ *       不允许"读-判-写"的非原子写法。</li>
+ *   <li><b>501 已完成 R1 不可达</b>：唯一写点在 R2 CI-36 评价成功后的 CAS（见
+ *       {@link OrderRules#canMarkCompleted}），本服务只读不写。</li>
+ * </ul>
  * </p>
  *
  * @author qihuang
@@ -72,6 +114,32 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
     private static final DateTimeFormatter DT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
+    /** 未付款自动关闭时长（BR-ORDER-06 / 07 §2.2） */
+    private static final long EXPIRE_MINUTES = 30L;
+
+    /** 单笔订单最多行数（CI-80/CI-82 ORDER_ITEM_LIMIT） */
+    private static final int MAX_ITEM_LINES = 50;
+
+    /** 售后申请窗口（天，P-36：confirm_time + 7 天） */
+    private static final long AFTERSALE_WINDOW_DAYS = 7L;
+
+    /* ==================== 错误码（03 §4.3，只允许用登记过的码） ==================== */
+    private static final String CODE_ORDER_NOT_FOUND = "ORDER_NOT_FOUND";
+    private static final String CODE_ORDER_STATUS_ILLEGAL = "ORDER_STATUS_ILLEGAL";
+    private static final String CODE_STOCK_NOT_ENOUGH = "STOCK_NOT_ENOUGH";
+    private static final String CODE_ADDRESS_INVALID = "ADDRESS_INVALID";
+    private static final String CODE_COUPON_NOT_USABLE = "COUPON_NOT_USABLE";
+    private static final String CODE_ORDER_ITEM_LIMIT = "ORDER_ITEM_LIMIT";
+    private static final String CODE_IDEMPOTENT_CONFLICT = "IDEMPOTENT_CONFLICT";
+    private static final String CODE_AFTERSALE_EXISTS = "AFTERSALE_EXISTS";
+    private static final String CODE_RESOURCE_NOT_FOUND = "RESOURCE_NOT_FOUND";
+
+    /* ==================== 日志 action（litemall_log.action ≤45 字符） ==================== */
+    private static final String LOG_CLOSE = "order:close";
+    private static final String LOG_CLOSE_EXPIRED = "order:close-expired";
+    private static final String LOG_SHIP_UPDATE = "order:ship-update";
+    private static final String LOG_TARGET_TYPE = "order";
+
     /** M3：订单号时间前缀格式 */
     private static final DateTimeFormatter SN_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     /** M3：进程内自增序列，避免同一秒内随机数碰撞 */
@@ -80,19 +148,14 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     private static final int SN_MAX_RETRY = 3;
 
     /* ==================== M4：下单幂等 token 状态机 ==================== */
-    /** 已签发、可被消费 */
     private static final String IDEM_INIT = "INIT";
-    /** 已消费（正在处理或已成功），拒绝重复提交 */
     private static final String IDEM_USED = "USED";
-    /** 处理失败已回退，允许用同一 token 重试 */
     private static final String IDEM_ROLLED_BACK = "ROLLED_BACK";
     private static final String IDEM_OK = "OK";
+    private static final String IDEM_MISSING = "MISSING";
+    /** 幂等「首次结果」缓存：order:idem:req:{token} → "参数指纹|OrderSubmitVO JSON" */
+    private static final String IDEM_REQ_PREFIX = "order:idem:req:";
 
-    /**
-     * M4：INIT / ROLLED_BACK --(原子)--> USED。
-     * 返回 {@code MISSING}（token 不存在或已过期）或 {@code USED}（已被消费）时均视为不允许提交。
-     * 用 Lua 保证"判断 + 置位"原子，避免并发下两个请求同时通过。
-     */
     private static final DefaultRedisScript<String> IDEM_MARK_SCRIPT = new DefaultRedisScript<>(
             "local v = redis.call('GET', KEYS[1]) "
                     + "if not v then return 'MISSING' end "
@@ -104,7 +167,6 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                     + "end "
                     + "return 'USED'", String.class);
 
-    /** M4：USED --(原子)--> ROLLED_BACK，保留原 TTL；仅当仍处于 USED 态时生效 */
     private static final DefaultRedisScript<Long> IDEM_ROLLBACK_SCRIPT = new DefaultRedisScript<>(
             "if redis.call('GET', KEYS[1]) == 'USED' then "
                     + "  local ttl = redis.call('TTL', KEYS[1]) "
@@ -114,148 +176,191 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                     + "end "
                     + "return 0", Long.class);
 
-    /** 订单状态（映射关系见 statusText，文档口径为准：101 未付款；102 待发货；201 已发货；301 已收货；401/402 售后） */
-    private static final int STATUS_UNPAID = 101;        // 未付款
-    private static final int STATUS_UNDELIVERED = 102;   // 已付款/待发货（文档口径）
-    private static final int STATUS_CANCELED = 103;      // 已取消（文档未定义，沿用老项目 103 取消语义）
-    private static final int STATUS_SHIPPED = 201;       // 已发货
-    private static final int STATUS_CONFIRMED = 301;     // 已收货
-    private static final int STATUS_REFUND = 401;        // 售后/退款中
-    /** 与 pay 服务 {@code PayServiceImpl.STATUS_REFUND_DONE} 同义：退款完成（终态） */
-    private static final int STATUS_REFUND_DONE = 402;
+    /**
+     * CI-83「待评价」栏：301 且存在「未退款且未评价」行。
+     * <p>comment=-1（不可评价）不参与判定（03 Q5）；R1 不写 -1。</p>
+     */
+    private static final String SQL_UNREVIEWED =
+            "SELECT 1 FROM litemall_order_goods og WHERE og.order_id = litemall_order.id "
+                    + "AND og.deleted = 0 AND og.refund_status = 0 AND (og.comment IS NULL OR og.comment = 0)";
 
-    /** H5：管理端发起的退款在 litemall_order.refund_type 上的取值（与 pay 服务写入的 wxpay 区分发起方） */
-    private static final String REFUND_TYPE_ADMIN = "admin";
+    /** fullyRefunded = NOT EXISTS(og.deleted=0 AND refund_status&lt;&gt;2)（03 Q5 原文） */
+    private static final String SQL_NOT_FULLY_REFUNDED =
+            "SELECT 1 FROM litemall_order_goods og WHERE og.order_id = litemall_order.id "
+                    + "AND og.deleted = 0 AND og.refund_status <> 2";
+
+    /** 存在未完结售后（0/1/2/3） */
+    private static final String SQL_UNFINISHED_AFTERSALE =
+            "SELECT 1 FROM litemall_aftersale a WHERE a.order_id = litemall_order.id "
+                    + "AND a.deleted = 0 AND a.status IN (0, 1, 2, 3)";
 
     private final CartMapper cartMapper;
     private final OrderGoodsMapper orderGoodsMapper;
+    private final AftersaleMapper aftersaleMapper;
+    private final OrderLogMapper orderLogMapper;
     private final GoodsClient goodsClient;
     private final UserClient userClient;
     private final MarketingClient marketingClient;
     private final StringRedisTemplate stringRedisTemplate;
 
+    /* ==================================================================== */
+    /* ==================== C 端：CI-80 / CI-82 / CI-83 ==================== */
+    /* ==================================================================== */
+
     @Override
     public String createIdemToken() {
         String token = IdUtil.fastSimpleUUID();
-        String key = RedisKeys.ORDER_IDEM + token;
-        // M4：签发时写入 INIT 态，由 submitOrder 原子推进到 USED；失败回退 ROLLED_BACK 允许重试
-        stringRedisTemplate.opsForValue().set(key, IDEM_INIT,
-                RedisKeys.ORDER_IDEM_TTL_SECONDS, TimeUnit.SECONDS);
+        stringRedisTemplate.opsForValue().set(RedisKeys.ORDER_IDEM + token,
+                IDEM_INIT, RedisKeys.ORDER_IDEM_TTL_SECONDS, TimeUnit.SECONDS);
         return token;
+    }
+
+    @Override
+    public OrderConfirmVO confirmOrder(OrderConfirmDTO dto) {
+        Long userId = requireUser();
+        List<DraftLine> drafts = resolveDrafts(userId, dto.getCartIds(), dto.getBuyNow());
+        if (drafts.size() > MAX_ITEM_LINES) {
+            throw new BadRequestException("订单商品种类不能超过 " + MAX_ITEM_LINES + " 种", CODE_ORDER_ITEM_LIMIT);
+        }
+        requireAddress(dto.getAddressId());
+
+        BigDecimal goodsAmount = sumAmount(drafts);
+        BigDecimal couponAmount = resolveCouponAmount(userId, dto.getCouponId(), goodsAmount);
+        List<BigDecimal> shares = OrderRules.allocateCoupon(lineAmounts(drafts), couponAmount);
+
+        OrderConfirmVO vo = new OrderConfirmVO();
+        vo.setGoodsAmount(Money.fen(goodsAmount));
+        vo.setFreightAmount(0);
+        vo.setCouponAmount(Money.fen(couponAmount));
+        vo.setOrderAmount(Money.fen(goodsAmount.subtract(couponAmount).max(BigDecimal.ZERO)));
+        List<OrderConfirmLineVO> lines = new ArrayList<>(drafts.size());
+        for (int i = 0; i < drafts.size(); i++) {
+            DraftLine d = drafts.get(i);
+            BigDecimal lineAmount = d.price().multiply(BigDecimal.valueOf(d.number()));
+            BigDecimal share = shares.get(i);
+            OrderConfirmLineVO line = new OrderConfirmLineVO();
+            line.setProductId(d.productId());
+            line.setGoodsName(d.goodsName());
+            line.setSpecText(d.specText());
+            line.setPrice(Money.fen(d.price()));
+            line.setNumber(d.number());
+            line.setLineAmount(Money.fen(lineAmount));
+            line.setCouponShare(Money.fen(share));
+            line.setActualAmount(Money.fen(lineAmount.subtract(share)));
+            // 可售不足只提示不阻断（07 §2.1）
+            line.setAvailableStock(d.sellable());
+            lines.add(line);
+        }
+        vo.setLines(lines);
+        return vo;
     }
 
     @Override
     @GlobalTransactional(rollbackFor = Exception.class)
     public OrderSubmitVO submitOrder(OrderSubmitDTO dto) {
-        Long userId = UserContext.getUser();
-        if (userId == null) {
-            throw new BadRequestException("请先登录");
+        Long userId = requireUser();
+        String token = StrUtil.trimToNull(dto.getIdemToken());
+        if (token == null) {
+            throw new BadRequestException("幂等token不能为空", BadRequestException.PARAM_INVALID);
+        }
+        String idemKey = RedisKeys.ORDER_IDEM + token;
+        String reqKey = IDEM_REQ_PREFIX + token;
+        String fingerprint = fingerprint(dto);
+
+        String state;
+        try {
+            state = stringRedisTemplate.execute(IDEM_MARK_SCRIPT, List.of(idemKey));
+        } catch (Exception e) {
+            log.error("[R1] 幂等 token 状态推进失败, key={}", idemKey, e);
+            throw new BadRequestException("订单提交校验失败，请稍后重试", BadRequestException.PARAM_INVALID);
+        }
+        if (state == null || IDEM_MISSING.equals(state)) {
+            throw new BadRequestException("幂等token无效或已过期", BadRequestException.PARAM_INVALID);
+        }
+        if (IDEM_USED.equals(state)) {
+            // 同键同参 → 回放首次结果；同键不同参 → 409 IDEMPOTENT_CONFLICT（07 §2.2）
+            OrderSubmitVO replay = replayIdemResult(reqKey, fingerprint);
+            if (replay != null) {
+                return replay;
+            }
+            throw new ConflictException("幂等token已用于不同参数的提交，请刷新后重试", CODE_IDEMPOTENT_CONFLICT);
         }
 
-        // 1.幂等校验（M4）：只有 INIT/ROLLED_BACK --(原子)--> USED 才放行；
-        //    已是 USED 说明请求正在处理或已成功，一律拒绝重复提交。
-        String idemKey = RedisKeys.ORDER_IDEM + dto.getIdemToken();
-        if (!markIdemUsed(idemKey)) {
-            throw new BadRequestException("请勿重复提交订单");
-        }
+        OrderSubmitVO vo;
         try {
-            return doSubmitOrder(dto, userId);
+            vo = doSubmitOrder(dto, userId);
         } catch (RuntimeException e) {
-            // M4：下单失败时把 token 置回可重试状态，前端用同一 token 重试不再被误判为重复提交。
-            // 必须重新抛出异常：Seata(GlobalTransactional) 依赖异常触发回滚，切勿在此吞掉。
             rollbackIdemUsed(idemKey);
             throw e;
         }
+        rememberIdemResult(reqKey, fingerprint, vo);
+        return vo;
     }
 
-    /** 真正的下单流程；由 {@link #submitOrder} 在全局事务内调用 */
+    /**
+     * CI-82 主流程：校验 → 建单 + 行快照（含券额分摊）→ 核销券 → 清购物车。
+     * <p><b>不动 goods_product.number</b>：锁量完全由 {@code order_status=101} 派生。</p>
+     */
     private OrderSubmitVO doSubmitOrder(OrderSubmitDTO dto, Long userId) {
-
-        // 2.校验并锁定购物车项（属于当前用户、未删除）
-        List<Long> cartIdList = dto.getCartIds();
-        List<Cart> carts = cartMapper.selectByIds(cartIdList);
-        if (carts.isEmpty()) {
-            throw new BadRequestException("购物车为空");
+        List<DraftLine> drafts = resolveDrafts(userId, dto.getCartIds(), dto.getBuyNow());
+        if (drafts.size() > MAX_ITEM_LINES) {
+            throw new BadRequestException("订单商品种类不能超过 " + MAX_ITEM_LINES + " 种", CODE_ORDER_ITEM_LIMIT);
         }
-        List<Cart> validCarts = carts.stream()
-                .filter(c -> c.getUserId().equals(userId))
-                .filter(c -> !Boolean.TRUE.equals(c.getDeleted()))
-                .toList();
-        if (validCarts.size() != cartIdList.size()) {
-            throw new BadRequestException("购物车项不存在或已失效");
-        }
+        AddressInfoDTO address = requireAddress(dto.getAddressId());
 
-        // 3.收货地址
-        AddressInfoDTO address = userClient.getAddressById(dto.getAddressId());
-        if (address == null) {
-            throw new BadRequestException("收货地址不存在");
-        }
+        // 可售校验：任一不足整单失败（不允许部分行成功）
+        assertSellable(drafts);
 
-        // 4.校验商品规格并计算商品总额
-        Map<Long, GoodsProductInfoDTO> productMap = new HashMap<>();
-        BigDecimal goodsAmount = BigDecimal.ZERO;
-        for (Cart cart : validCarts) {
-            GoodsProductInfoDTO product = goodsClient.getProductInfo(cart.getProductId());
-            if (product == null) {
-                throw new BadRequestException("商品规格不存在");
-            }
-            productMap.put(cart.getProductId(), product);
-            goodsAmount = goodsAmount.add(cart.getPrice().multiply(BigDecimal.valueOf(cart.getNumber())));
-        }
+        BigDecimal goodsAmount = sumAmount(drafts);
+        BigDecimal couponAmount = resolveCouponAmount(userId, dto.getCouponId(), goodsAmount);
+        BigDecimal orderAmount = goodsAmount.subtract(couponAmount).max(BigDecimal.ZERO);
+        List<BigDecimal> shares = OrderRules.allocateCoupon(lineAmounts(drafts), couponAmount);
 
-        // 5.优惠券试算（用户券记录ID）
-        CouponCheckDTO check = new CouponCheckDTO();
-        check.setCouponUserId(dto.getCouponId());
-        check.setGoodsAmount(goodsAmount);
-        BigDecimal couponAmount = marketingClient.checkCoupon(check);
-
-        // 6.运费（当前简化：免运费）
-        BigDecimal freight = BigDecimal.ZERO;
-
-        // 7.订单费用
-        BigDecimal orderAmount = goodsAmount.add(freight).subtract(couponAmount);
-        if (orderAmount.compareTo(BigDecimal.ZERO) < 0) {
-            orderAmount = BigDecimal.ZERO;
-        }
-
-        // 8.建订单
         LocalDateTime now = LocalDateTime.now();
         Order order = new Order()
                 .setUserId(userId)
                 .setOrderSn(generateOrderSn())
-                .setOrderStatus(STATUS_UNPAID)
+                .setOrderStatus(OrderStatus.UNPAID)
                 .setAftersaleStatus(0)
                 .setConsignee(address.getName())
                 .setMobile(address.getMobile())
                 .setAddress(fullAddress(address))
                 .setMessage(StrUtil.nullToEmpty(dto.getMessage()))
                 .setGoodsPrice(goodsAmount)
-                .setFreightPrice(freight)
+                .setFreightPrice(BigDecimal.ZERO)
                 .setCouponPrice(couponAmount)
                 .setIntegralPrice(BigDecimal.ZERO)
                 .setGrouponPrice(BigDecimal.ZERO)
                 .setOrderPrice(orderAmount)
                 .setActualPrice(orderAmount)
                 .setComments(0)
+                .setMerchantId(1L)
+                .setUserDeleted(false)
+                .setExpireTime(now.plusMinutes(EXPIRE_MINUTES))
                 .setAddTime(now)
                 .setUpdateTime(now)
                 .setDeleted(false);
-        // M3：经唯一索引兜底的保存（冲突自动换号，最多 3 次）
         saveOrder(order);
 
-        // 9.订单商品快照
-        for (Cart cart : validCarts) {
-            GoodsProductInfoDTO product = productMap.get(cart.getProductId());
+        for (int i = 0; i < drafts.size(); i++) {
+            DraftLine d = drafts.get(i);
+            BigDecimal lineAmount = d.price().multiply(BigDecimal.valueOf(d.number()));
+            BigDecimal share = shares.get(i);
             OrderGoods og = new OrderGoods()
                     .setOrderId(order.getId())
-                    .setGoodsId(cart.getGoodsId())
-                    .setGoodsName(cart.getGoodsName())
-                    .setGoodsSn(cart.getGoodsSn())
-                    .setProductId(cart.getProductId())
-                    .setNumber(cart.getNumber())
-                    .setPrice(cart.getPrice())
-                    .setSpecifications(cart.getSpecifications())
-                    .setPicUrl(cart.getPicUrl())
+                    .setGoodsId(d.goodsId())
+                    .setGoodsName(d.goodsName())
+                    .setGoodsSn(d.goodsSn())
+                    .setProductId(d.productId())
+                    .setNumber(d.number())
+                    .setPrice(d.price())
+                    .setSpecifications(d.specifications())
+                    .setPicUrl(d.picUrl())
+                    .setSkuCode(d.skuCode())
+                    .setCouponShare(share)
+                    .setActualAmount(lineAmount.subtract(share))
+                    .setRefundStatus(0)
+                    .setRefundedNumber(0)
                     .setComment(0)
                     .setAddTime(now)
                     .setUpdateTime(now)
@@ -263,315 +368,1209 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             orderGoodsMapper.insert(og);
         }
 
-        // 10.扣库存（M2：一次批量 RPC 完成所有购物车项，避免 N 次跨服务调用）
-        List<StockChangeDTO.Item> deductItems = new ArrayList<>(validCarts.size());
-        for (Cart cart : validCarts) {
-            deductItems.add(stockItem(cart.getProductId(), cart.getNumber()));
-        }
-        goodsClient.deductStockBatch(stockChange(deductItems));
-
-        // 11.核销优惠券
-        if (dto.getCouponId() != null) {
+        if (dto.getCouponId() != null && couponAmount.signum() > 0) {
             CouponUseDTO use = new CouponUseDTO();
             use.setCouponUserId(dto.getCouponId());
             use.setOrderId(order.getId());
             marketingClient.useCoupon(use);
         }
 
-        // 12.删除购物车项（逻辑删除）
-        LocalDateTime updateTime = LocalDateTime.now();
-        for (Cart cart : validCarts) {
-            cart.setDeleted(true);
-            cart.setUpdateTime(updateTime);
-            cartMapper.updateById(cart);
+        // 购物车下单成功后清空已购项；立即购买无需清理
+        if (dto.getBuyNow() == null && dto.getCartIds() != null && !dto.getCartIds().isEmpty()) {
+            for (Long cartId : distinct(dto.getCartIds())) {
+                Cart cart = new Cart().setId(cartId).setDeleted(true).setUpdateTime(now);
+                cartMapper.updateById(cart);
+            }
         }
 
         OrderSubmitVO vo = new OrderSubmitVO();
         vo.setOrderId(order.getId());
         vo.setOrderSn(order.getOrderSn());
-        vo.setOrderAmount(orderAmount);
+        vo.setOrderAmount(Money.fen(orderAmount));
+        vo.setExpireTime(order.getExpireTime().format(DT));
         return vo;
     }
 
     @Override
-    public PageVO<OrderListItemVO> listOrder(Integer pageNum, Integer pageSize, String status) {
-        Long userId = UserContext.getUser();
-        int pn = pageNum == null || pageNum < 1 ? 1 : pageNum;
-        int ps = pageSize == null || pageSize < 1 || pageSize > 100 ? 10 : pageSize;
-        Page<Order> page = new Page<>(pn, ps);
+    public PageVO<OrderListItemVO> listOrder(String tab, String status, Integer pageNo, Integer pageSize,
+                                             String sortBy, Boolean isAsc) {
+        Long userId = requireUser();
+        int pn = pageNo == null || pageNo < 1 ? 1 : pageNo;
+        int ps = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 100);
 
-        Integer statusCode = parseStatus(status);
-        Page<Order> orderPage = lambdaQuery()
-                .eq(Order::getUserId, userId)
+        LambdaQueryWrapper<Order> qw = new LambdaQueryWrapper<>();
+        qw.eq(Order::getUserId, userId)
                 .eq(Order::getDeleted, false)
-                .eq(statusCode != null, Order::getOrderStatus, statusCode)
-                .orderByDesc(Order::getAddTime)
-                .page(page);
+                // user_deleted 为 null 的存量行按"未隐藏"处理
+                .and(w -> w.isNull(Order::getUserDeleted).or().eq(Order::getUserDeleted, false));
 
-        List<Order> orders = orderPage.getRecords();
-        // M1：一次 IN 查询取回本页全部订单商品（原先每行单独查 => 页大小 10 时 11 次查询）
-        Map<Long, List<OrderGoods>> goodsByOrder = loadOrderGoods(orders);
-        List<OrderListItemVO> voList = orders.stream()
-                .map(o -> toListItemVO(o, goodsByOrder.getOrDefault(o.getId(), List.of())))
+        if (StrUtil.isNotBlank(tab)) {
+            applyTab(qw, tab.trim());
+        } else if (StrUtil.isNotBlank(status)) {
+            List<Integer> codes = OrderStatus.parseMulti(status);
+            if (codes == null) {
+                throw new BadRequestException("status 取值非法", BadRequestException.PARAM_INVALID);
+            }
+            if (!codes.isEmpty()) {
+                qw.in(Order::getOrderStatus, codes);
+            }
+        }
+
+        boolean asc = Boolean.TRUE.equals(isAsc);
+        if ("orderAmount".equalsIgnoreCase(StrUtil.trimToEmpty(sortBy))) {
+            qw.orderBy(true, asc, Order::getOrderPrice);
+        } else {
+            qw.orderBy(true, asc, Order::getAddTime);
+        }
+        qw.orderBy(true, asc, Order::getId);
+
+        Page<Order> page = page(new Page<>(pn, ps), qw);
+        Map<Long, List<OrderGoods>> goodsMap = loadOrderGoods(page.getRecords());
+        List<OrderListItemVO> rows = page.getRecords().stream()
+                .map(o -> toListItemVO(o, goodsMap.getOrDefault(o.getId(), List.of())))
                 .collect(Collectors.toList());
-        return new PageVO<>(orderPage.getTotal(), orderPage.getPages(), voList);
+        return PageVO.of(page, rows);
+    }
+
+    /**
+     * CI-83 的 7 栏判定（03 Q5 冻结；按单判定，不做记忆化）。
+     * <p>tab 与 status 同传时 tab 优先；tab 非法 → 400 PARAM_INVALID（列表永不 404）。</p>
+     */
+    private void applyTab(LambdaQueryWrapper<Order> qw, String tab) {
+        switch (tab) {
+            case "all" -> {
+                // 不加状态条件，仅排除 user_deleted=1
+            }
+            case "unpaid" -> qw.eq(Order::getOrderStatus, OrderStatus.UNPAID);
+            case "undelivered" -> qw.eq(Order::getOrderStatus, OrderStatus.UNDELIVERED);
+            case "shipped" -> qw.eq(Order::getOrderStatus, OrderStatus.SHIPPED);
+            case "unreviewed" -> {
+                qw.eq(Order::getOrderStatus, OrderStatus.CONFIRMED);
+                qw.exists(SQL_UNREVIEWED);
+            }
+            case "finished" -> qw.and(w -> w.eq(Order::getOrderStatus, OrderStatus.COMPLETED)
+                    .or(x -> x.eq(Order::getOrderStatus, OrderStatus.CONFIRMED)
+                            // 语义：exists(SQL_NOT_FULLY_REFUNDED) = 「至少还有一行未全退」才进「已完成」；
+                            // 取反成 notExists 得到的是 fullyRefunded（全退单），会误入「已完成」——勿再取反。
+                            .exists(SQL_NOT_FULLY_REFUNDED)
+                            .notExists(SQL_UNREVIEWED)));
+            case "aftersale" -> qw.and(w -> w.exists(SQL_UNFINISHED_AFTERSALE)
+                    .or().notExists(SQL_NOT_FULLY_REFUNDED));
+            default -> throw new BadRequestException("tab 取值非法", BadRequestException.PARAM_INVALID);
+        }
     }
 
     @Override
     public OrderDetailVO getOrderDetail(Long orderId) {
-        Long userId = UserContext.getUser();
-        Order order = lambdaQuery()
-                .eq(Order::getId, orderId)
-                .eq(Order::getUserId, userId)
-                .eq(Order::getDeleted, false)
-                .one();
+        Long userId = requireUser();
+        Order order = orderMapper()
+                .selectOne(new LambdaQueryWrapper<Order>()
+                        .eq(Order::getId, orderId)
+                        .eq(Order::getUserId, userId)
+                        .eq(Order::getDeleted, false));
         if (order == null) {
-            throw new BadRequestException("订单不存在");
+            // 他人订单同样按 404，不泄露存在性（P-13）
+            throw new NotFoundException("订单不存在", CODE_ORDER_NOT_FOUND);
         }
+        List<OrderGoods> lines = listGoods(order.getId());
+        List<Aftersale> unfinished = listUnfinishedAftersale(order.getId());
 
         OrderDetailVO vo = new OrderDetailVO();
         vo.setOrderId(order.getId());
         vo.setOrderSn(order.getOrderSn());
-        vo.setStatus(statusText(order.getOrderStatus()));
+        vo.setStatus(OrderStatus.ident(order.getOrderStatus()));
+        vo.setStatusText(OrderStatus.label(order.getOrderStatus()));
         vo.setConsignee(order.getConsignee());
         vo.setMobile(order.getMobile());
         vo.setAddress(order.getAddress());
         vo.setMessage(order.getMessage());
-        vo.setGoodsAmount(order.getGoodsPrice());
-        vo.setFreightAmount(order.getFreightPrice());
-        vo.setCouponAmount(order.getCouponPrice());
-        vo.setOrderAmount(order.getOrderPrice());
-        vo.setActualPrice(order.getActualPrice());
-        vo.setPayTime(order.getPayTime() == null ? null : order.getPayTime().format(DT));
+        vo.setGoodsAmount(Money.fen(order.getGoodsPrice()));
+        vo.setFreightAmount(Money.fen(order.getFreightPrice()));
+        vo.setCouponAmount(Money.fen(order.getCouponPrice()));
+        vo.setOrderAmount(Money.fen(order.getOrderPrice()));
+        vo.setActualPrice(Money.fen(order.getActualPrice()));
+        vo.setPayTime(format(order.getPayTime()));
         vo.setShipChannel(order.getShipChannel());
         vo.setShipSn(order.getShipSn());
-        vo.setShipTime(order.getShipTime() == null ? null : order.getShipTime().format(DT));
-        vo.setAddTime(order.getAddTime() == null ? null : order.getAddTime().format(DT));
-        vo.setGoodsList(listOrderGoods(order.getId()));
+        vo.setShipTime(format(order.getShipTime()));
+        vo.setExpireTime(Objects.equals(order.getOrderStatus(), OrderStatus.UNPAID)
+                ? format(order.getExpireTime()) : null);
+        vo.setAddTime(format(order.getAddTime()));
+        vo.setFullyRefunded(OrderRules.isFullyRefunded(lines));
+        vo.setRefundedAmount(Money.fen(OrderRules.refundedAmount(lines)));
+        vo.setLines(buildDetailLines(order, lines, unfinished));
+        vo.setTimeline(buildTimeline(order));
+        vo.setAftersale(briefOf(latestUnfinished(unfinished)));
+        vo.setGoodsList(listOrderGoods(lines));
         return vo;
     }
 
     @Override
     @GlobalTransactional(rollbackFor = Exception.class)
     public void cancelOrder(Long orderId) {
-        Long userId = UserContext.getUser();
-        Order order = lambdaQuery()
-                .eq(Order::getId, orderId)
-                .eq(Order::getUserId, userId)
-                .eq(Order::getDeleted, false)
-                .one();
-        if (order == null) {
-            throw new BadRequestException("订单不存在");
+        Long userId = requireUser();
+        Order order = requireOwnOrder(orderId, userId);
+        if (!Objects.equals(order.getOrderStatus(), OrderStatus.UNPAID)) {
+            throw new ConflictException("该订单当前状态不可取消", CODE_ORDER_STATUS_ILLEGAL);
         }
-        if (order.getOrderStatus() != STATUS_UNPAID) {
-            throw new BadRequestException("仅未付款订单可取消");
-        }
-
-        // 回补库存 + 回退优惠券（H5：与管理端退款共用同一套补偿逻辑）
-        releaseOrderStockAndCoupon(order);
-
-        // 订单置为已取消
-        order.setOrderStatus(STATUS_CANCELED);
-        order.setEndTime(LocalDateTime.now());
-        order.setUpdateTime(LocalDateTime.now());
-        updateById(order);
+        closeUnpaidOrder(order, OrderStatus.CLOSE_USER, null, null, null, "该订单当前状态不可取消");
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void confirmReceive(Long orderId) {
-        Long userId = UserContext.getUser();
-        Order order = lambdaQuery()
-                .eq(Order::getId, orderId)
-                .eq(Order::getUserId, userId)
+        Long userId = requireUser();
+        Order order = requireOwnOrder(orderId, userId);
+        LocalDateTime now = LocalDateTime.now();
+        boolean ok = lambdaUpdate()
+                .eq(Order::getId, order.getId())
+                .eq(Order::getOrderStatus, OrderStatus.SHIPPED)
                 .eq(Order::getDeleted, false)
-                .one();
-        if (order == null) {
-            throw new BadRequestException("订单不存在");
+                .set(Order::getOrderStatus, OrderStatus.CONFIRMED)
+                .set(Order::getConfirmTime, now)
+                .set(Order::getUpdateTime, now)
+                .update();
+        if (!ok) {
+            throw new ConflictException("只有已发货订单可以确认收货", CODE_ORDER_STATUS_ILLEGAL);
         }
-        if (order.getOrderStatus() != STATUS_SHIPPED) {
-            throw new BadRequestException("仅已发货订单可确认收货");
-        }
-        order.setOrderStatus(STATUS_CONFIRMED);
-        order.setConfirmTime(LocalDateTime.now());
-        order.setUpdateTime(LocalDateTime.now());
-        updateById(order);
     }
 
-    /* ==================== H5：管理端订单（admin 服务 Feign 调用；状态机在本服务内收口） ==================== */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void hideOrder(Long orderId) {
+        Long userId = requireUser();
+        Order order = requireOwnOrder(orderId, userId);
+        if (Boolean.TRUE.equals(order.getUserDeleted())) {
+            return; // 重复隐藏 200
+        }
+        long unfinished = countUnfinishedAftersale(order.getId());
+        if (unfinished > 0) {
+            throw new ConflictException("有处理中的售后，暂不能删除", CODE_AFTERSALE_EXISTS);
+        }
+        boolean ok = lambdaUpdate()
+                .eq(Order::getId, order.getId())
+                .eq(Order::getDeleted, false)
+                .and(w -> w.isNull(Order::getUserDeleted).or().eq(Order::getUserDeleted, false))
+                .set(Order::getUserDeleted, true)
+                .set(Order::getUpdateTime, LocalDateTime.now())
+                .update();
+        if (!ok) {
+            // 并发下已被隐藏：目标状态已达成，按幂等 200 处理
+            log.debug("[R1] 订单隐藏 CAS 未命中（并发已隐藏）, orderId={}", orderId);
+        }
+    }
+
+    /* ==================================================================== */
+    /* ==================== 管理端：CI-26 / CN-33 / 发货 / 关单 ==================== */
+    /* ==================================================================== */
 
     @Override
-    public PageVO<OrderAdminDTO> adminListOrders(Integer pageNum, Integer pageSize, String status) {
-        int pn = pageNum == null || pageNum < 1 ? 1 : pageNum;
-        int ps = pageSize == null || pageSize < 1 || pageSize > 100 ? 10 : pageSize;
-        Integer statusCode = parseStatus(status);
-        Page<Order> orderPage = lambdaQuery()
-                .eq(Order::getDeleted, false)
-                .eq(statusCode != null, Order::getOrderStatus, statusCode)
-                .orderByDesc(Order::getId)
-                .page(new Page<>(pn, ps));
-        // 字段与改造前 admin 端的 Map 保持一致：id/orderSn/userId/orderAmount/status/addTime
-        return PageVO.of(orderPage, o -> {
-            OrderAdminDTO dto = new OrderAdminDTO();
-            dto.setId(o.getId());
-            dto.setOrderSn(o.getOrderSn());
-            dto.setUserId(o.getUserId());
-            dto.setOrderAmount(o.getOrderPrice());
-            dto.setStatus(statusText(o.getOrderStatus()));
-            dto.setAddTime(o.getAddTime());
-            return dto;
-        });
+    public PageVO<OrderAdminDTO> adminListOrders(Integer pageNo, Integer pageSize, String status,
+                                                 String aftersaleStatus, String orderSn, String keyword,
+                                                 Long userId, String addTimeMin, String addTimeMax,
+                                                 String sortBy, Boolean isAsc) {
+        int pn = pageNo == null || pageNo < 1 ? 1 : pageNo;
+        int ps = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 100);
+
+        LambdaQueryWrapper<Order> qw = new LambdaQueryWrapper<>();
+        qw.eq(Order::getDeleted, false);
+        if (StrUtil.isNotBlank(status)) {
+            List<Integer> codes = OrderStatus.parseMulti(status);
+            if (codes == null) {
+                throw new BadRequestException("status 取值非法", BadRequestException.PARAM_INVALID);
+            }
+            if (!codes.isEmpty()) {
+                qw.in(Order::getOrderStatus, codes);
+            }
+        }
+        if (StrUtil.isNotBlank(aftersaleStatus)) {
+            List<Integer> codes = parseAftersaleMulti(aftersaleStatus);
+            if (codes == null) {
+                throw new BadRequestException("aftersaleStatus 取值非法", BadRequestException.PARAM_INVALID);
+            }
+            if (!codes.isEmpty()) {
+                String inClause = codes.stream().map(String::valueOf).collect(Collectors.joining(", "));
+                qw.exists("SELECT 1 FROM litemall_aftersale a WHERE a.order_id = litemall_order.id "
+                        + "AND a.deleted = 0 AND a.status IN (" + inClause + ")");
+            }
+        }
+        if (StrUtil.isNotBlank(orderSn)) {
+            qw.eq(Order::getOrderSn, orderSn.trim());
+        }
+        String kw = StrUtil.trimToEmpty(keyword);
+        if (!kw.isEmpty()) {
+            if (kw.length() > 64) {
+                throw new BadRequestException("keyword 长度不能超过 64", BadRequestException.PARAM_INVALID);
+            }
+            qw.and(w -> w.like(Order::getOrderSn, kw).or().like(Order::getConsignee, kw)
+                    .or().like(Order::getMobile, kw));
+        }
+        if (userId != null) {
+            qw.eq(Order::getUserId, userId);
+        }
+        LocalDateTime min = parseTime(addTimeMin, "addTimeMin");
+        if (min != null) {
+            qw.ge(Order::getAddTime, min);
+        }
+        LocalDateTime max = parseTime(addTimeMax, "addTimeMax");
+        if (max != null) {
+            qw.le(Order::getAddTime, max);
+        }
+
+        boolean asc = Boolean.TRUE.equals(isAsc);
+        if ("orderAmount".equalsIgnoreCase(StrUtil.trimToEmpty(sortBy))) {
+            qw.orderBy(true, asc, Order::getOrderPrice);
+        } else {
+            qw.orderBy(true, asc, Order::getAddTime);
+        }
+        qw.orderBy(true, asc, Order::getId);
+
+        Page<Order> page = page(new Page<>(pn, ps), qw);
+        List<Order> records = page.getRecords();
+        Map<Long, List<OrderGoods>> goodsMap = loadOrderGoods(records);
+        Map<Long, Aftersale> aftersaleMap = loadLatestUnfinishedAftersale(
+                records.stream().map(Order::getId).collect(Collectors.toList()));
+        List<OrderAdminDTO> rows = records.stream().map(o -> {
+            List<OrderGoods> lines = goodsMap.getOrDefault(o.getId(), List.of());
+            OrderAdminDTO row = new OrderAdminDTO();
+            row.setId(o.getId());
+            row.setOrderSn(o.getOrderSn());
+            row.setUserId(o.getUserId());
+            row.setOrderAmount(Money.fen(o.getOrderPrice()));
+            row.setStatus(OrderStatus.ident(o.getOrderStatus()));
+            row.setStatusText(OrderStatus.label(o.getOrderStatus()));
+            row.setFullyRefunded(OrderRules.isFullyRefunded(lines));
+            row.setRefundedAmount(Money.fen(OrderRules.refundedAmount(lines)));
+            Aftersale a = aftersaleMap.get(o.getId());
+            row.setAftersaleStatus(a == null ? null : AftersaleStatus.ident(a.getStatus()));
+            row.setAftersaleStatusText(a == null ? null : AftersaleStatus.label(a.getStatus()));
+            row.setGoodsSummary(goodsSummary(lines));
+            row.setAddTime(o.getAddTime());
+            return row;
+        }).collect(Collectors.toList());
+        return PageVO.of(page, rows);
+    }
+
+    @Override
+    public OrderAdminDetailDTO adminOrderDetail(Long id) {
+        Order order = orderMapper().selectOne(new LambdaQueryWrapper<Order>()
+                .eq(Order::getId, id)
+                .eq(Order::getDeleted, false));
+        if (order == null) {
+            throw new NotFoundException("订单不存在", CODE_ORDER_NOT_FOUND);
+        }
+        List<OrderGoods> lines = listGoods(order.getId());
+        List<Aftersale> unfinished = listUnfinishedAftersale(order.getId());
+        Map<Long, Aftersale> byLine = unfinished.stream()
+                .filter(a -> a.getOrderGoodsId() != null)
+                .collect(Collectors.toMap(Aftersale::getOrderGoodsId, a -> a, (a, b) -> a));
+
+        OrderAdminDetailDTO dto = new OrderAdminDetailDTO();
+        dto.setId(order.getId());
+        dto.setOrderSn(order.getOrderSn());
+        dto.setUserId(order.getUserId());
+        dto.setUserDeleted(Boolean.TRUE.equals(order.getUserDeleted()));
+        dto.setStatus(OrderStatus.ident(order.getOrderStatus()));
+        dto.setStatusText(OrderStatus.label(order.getOrderStatus()));
+        dto.setConsignee(order.getConsignee());
+        dto.setMobile(order.getMobile());
+        dto.setAddress(order.getAddress());
+        dto.setMessage(order.getMessage());
+        dto.setGoodsAmount(Money.fen(order.getGoodsPrice()));
+        dto.setFreightAmount(Money.fen(order.getFreightPrice()));
+        dto.setCouponAmount(Money.fen(order.getCouponPrice()));
+        dto.setOrderAmount(Money.fen(order.getOrderPrice()));
+        dto.setActualPrice(Money.fen(order.getActualPrice()));
+        dto.setPayTime(format(order.getPayTime()));
+        dto.setExpireTime(Objects.equals(order.getOrderStatus(), OrderStatus.UNPAID)
+                ? format(order.getExpireTime()) : null);
+        dto.setShipChannel(order.getShipChannel());
+        dto.setShipSn(order.getShipSn());
+        dto.setShipTime(format(order.getShipTime()));
+        int shipUpdateCount = shipUpdateCount(order.getId());
+        dto.setShipUpdateCount(shipUpdateCount);
+        dto.setCanUpdateShip(Objects.equals(order.getOrderStatus(), OrderStatus.SHIPPED) && shipUpdateCount == 0);
+        dto.setCloseType(order.getCloseType());
+        dto.setCloseTypeText(OrderStatus.closeTypeLabel(order.getCloseType()));
+        dto.setFullyRefunded(OrderRules.isFullyRefunded(lines));
+        dto.setRefundedAmount(Money.fen(OrderRules.refundedAmount(lines)));
+        dto.setAddTime(format(order.getAddTime()));
+
+        List<OrderAdminDetailDTO.Line> lineDTOs = new ArrayList<>(lines.size());
+        for (OrderGoods og : lines) {
+            Aftersale a = byLine.get(og.getId());
+            OrderAdminDetailDTO.Line line = new OrderAdminDetailDTO.Line();
+            line.setOrderGoodsId(og.getId());
+            line.setProductId(og.getProductId());
+            line.setGoodsId(og.getGoodsId());
+            line.setGoodsName(og.getGoodsName());
+            line.setSpecText(specText(og.getSpecifications()));
+            line.setPrice(Money.fen(og.getPrice()));
+            line.setNumber(og.getNumber());
+            line.setActualAmount(Money.fen(og.getActualAmount()));
+            line.setRefundedNumber(og.getRefundedNumber());
+            line.setRefundStatus(og.getRefundStatus());
+            line.setRefundStatusText(AftersaleStatus.refundStatusLabel(og.getRefundStatus()));
+            line.setAftersaleId(a == null ? null : a.getId());
+            line.setAftersaleStatus(a == null ? null : AftersaleStatus.ident(a.getStatus()));
+            line.setAftersaleStatusText(a == null ? null : AftersaleStatus.label(a.getStatus()));
+            lineDTOs.add(line);
+        }
+        dto.setLines(lineDTOs);
+        return dto;
     }
 
     @Override
     public OrderAdminStatsDTO adminOrderStats() {
         LocalDateTime today = LocalDate.now().atStartOfDay();
+        long todayOrders = count(new LambdaQueryWrapper<Order>()
+                .eq(Order::getDeleted, false)
+                .ge(Order::getAddTime, today));
+        long undelivered = count(new LambdaQueryWrapper<Order>()
+                .eq(Order::getDeleted, false)
+                .eq(Order::getOrderStatus, OrderStatus.UNDELIVERED));
         OrderAdminStatsDTO stats = new OrderAdminStatsDTO();
-        stats.setTodayOrders(lambdaQuery()
-                .eq(Order::getDeleted, false)
-                .ge(Order::getAddTime, today)
-                .count());
-        stats.setUndelivered(lambdaQuery()
-                .eq(Order::getDeleted, false)
-                .eq(Order::getOrderStatus, STATUS_UNDELIVERED)
-                .count());
+        stats.setTodayOrders(todayOrders);
+        stats.setUndelivered(undelivered);
         return stats;
     }
 
-    /**
-     * H5：管理端发货。状态机：仅 102 待发货 → 201 已发货。
-     * <p>
-     * 拒绝 101 未付款、103 已取消、201 重复发货、301 已收货、401/402 售后，
-     * 从根上替代改造前 admin 端"直接置 201"的写法。
-     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void adminShip(OrderShipDTO dto) {
-        Order order = requireOrder(dto == null ? null : dto.getOrderId());
-        if (order.getOrderStatus() == null || order.getOrderStatus() != STATUS_UNDELIVERED) {
-            throw new BadRequestException("仅待发货订单可发货，当前状态：" + statusText(order.getOrderStatus()));
+        Order order = requireOrder(dto.getOrderId());
+        String channel = requireShipField(dto.getShipChannel(), "快递公司");
+        String sn = requireShipField(dto.getShipSn(), "快递单号");
+        LocalDateTime now = LocalDateTime.now();
+        boolean ok = lambdaUpdate()
+                .eq(Order::getId, order.getId())
+                .eq(Order::getOrderStatus, OrderStatus.UNDELIVERED)
+                .eq(Order::getDeleted, false)
+                .set(Order::getOrderStatus, OrderStatus.SHIPPED)
+                .set(Order::getShipChannel, channel)
+                .set(Order::getShipSn, sn)
+                .set(Order::getShipTime, now)
+                .set(Order::getUpdateTime, now)
+                .update();
+        if (!ok) {
+            throw new ConflictException("只有待发货订单可以发货", CODE_ORDER_STATUS_ILLEGAL);
+        }
+    }
+
+    @Override
+    @GlobalTransactional(rollbackFor = Exception.class)
+    public void adminClose(OrderCloseDTO dto) {
+        Order order = requireOrder(dto.getOrderId());
+        String reason = StrUtil.trimToNull(dto.getReason());
+        if (reason != null && reason.length() > 255) {
+            throw new BadRequestException("关单原因不能超过 255 字", BadRequestException.PARAM_INVALID);
+        }
+        closeUnpaidOrder(order, OrderStatus.CLOSE_ADMIN, dto.getAdminId(), LOG_CLOSE, reason,
+                "该订单当前状态不可关闭");
+    }
+
+    @Override
+    @GlobalTransactional(rollbackFor = Exception.class)
+    public CloseExpiredResultDTO adminCloseExpired(Integer limit, Boolean dryRun) {
+        int max = limit == null ? 100 : limit;
+        if (max < 1 || max > 200) {
+            throw new BadRequestException("limit 取值范围 1–200", BadRequestException.PARAM_INVALID);
+        }
+        boolean scanOnly = Boolean.TRUE.equals(dryRun);
+        LocalDateTime now = LocalDateTime.now();
+        List<Order> expired = orderMapper().selectList(new LambdaQueryWrapper<Order>()
+                .eq(Order::getDeleted, false)
+                .eq(Order::getOrderStatus, OrderStatus.UNPAID)
+                .le(Order::getExpireTime, now)
+                .orderByAsc(Order::getId)
+                .last("LIMIT " + max));
+
+        CloseExpiredResultDTO result = new CloseExpiredResultDTO();
+        result.setTotal(expired.size());
+        int succeeded = 0;
+        int failed = 0;
+        for (Order order : expired) {
+            CloseExpiredResultDTO.Item item = new CloseExpiredResultDTO.Item();
+            item.setId(order.getId());
+            if (scanOnly) {
+                item.setOk(true);
+                item.setReason("dryRun：未落库");
+                succeeded++;
+                result.getItems().add(item);
+                continue;
+            }
+            try {
+                closeUnpaidOrder(order, OrderStatus.CLOSE_TIMEOUT, null, LOG_CLOSE_EXPIRED, null,
+                        "已被用户取消（状态已变更）");
+                item.setOk(true);
+                succeeded++;
+            } catch (ConflictException e) {
+                item.setOk(false);
+                item.setReason(e.getMessage());
+                failed++;
+            }
+            result.getItems().add(item);
+        }
+        result.setSucceeded(succeeded);
+        result.setFailed(failed);
+        return result;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void adminUpdateShip(OrderShipDTO dto) {
+        Order order = requireOrder(dto.getOrderId());
+        String channel = requireShipField(dto.getShipChannel(), "快递公司");
+        String sn = requireShipField(dto.getShipSn(), "快递单号");
+        String reason = StrUtil.trimToNull(dto.getReason());
+        if (reason != null && reason.length() > 255) {
+            throw new BadRequestException("修改原因不能超过 255 字", BadRequestException.PARAM_INVALID);
+        }
+        if (!Objects.equals(order.getOrderStatus(), OrderStatus.SHIPPED)) {
+            throw new ConflictException("只有已发货订单可以修改物流单号", CODE_ORDER_STATUS_ILLEGAL);
+        }
+        if (shipUpdateCount(order.getId()) > 0) {
+            throw new ConflictException("物流单号已修改过，不能再次修改", CODE_ORDER_STATUS_ILLEGAL);
         }
         LocalDateTime now = LocalDateTime.now();
-        order.setOrderStatus(STATUS_SHIPPED);
-        if (StrUtil.isNotBlank(dto.getShipChannel())) {
-            order.setShipChannel(dto.getShipChannel());
+        boolean ok = lambdaUpdate()
+                .eq(Order::getId, order.getId())
+                .eq(Order::getOrderStatus, OrderStatus.SHIPPED)
+                .eq(Order::getDeleted, false)
+                .set(Order::getShipChannel, channel)
+                .set(Order::getShipSn, sn)
+                .set(Order::getUpdateTime, now)
+                .update();
+        if (!ok) {
+            throw new ConflictException("只有已发货订单可以修改物流单号", CODE_ORDER_STATUS_ILLEGAL);
         }
-        if (StrUtil.isNotBlank(dto.getShipSn())) {
-            order.setShipSn(dto.getShipSn());
+        String oldValue = StrUtil.nullToEmpty(order.getShipChannel()) + " / " + StrUtil.nullToEmpty(order.getShipSn());
+        writeOrderLog(LOG_SHIP_UPDATE, order.getId(), null,
+                oldValue + " → " + channel + " / " + sn, reason);
+    }
+
+    /* ==================================================================== */
+    /* ==================== 对内：CI-97 / CN-IN-01 / CN-IN-04 ==================== */
+    /* ==================================================================== */
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public PaySuccessResultDTO markPaid(PaySuccessDTO dto) {
+        PaySuccessResultDTO result = new PaySuccessResultDTO();
+        Order order = orderMapper().selectOne(new LambdaQueryWrapper<Order>()
+                .eq(Order::getId, dto.getOrderId())
+                .eq(Order::getDeleted, false));
+        if (order == null) {
+            throw new NotFoundException("订单不存在", CODE_ORDER_NOT_FOUND);
         }
-        order.setShipTime(now);
-        order.setUpdateTime(now);
-        updateById(order);
+        // 幂等闸门：pay_time IS NOT NULL 视为已处理，不再动库存（同单只实扣一次）
+        if (order.getPayTime() != null) {
+            result.setApplied(false);
+            result.setDeducted(false);
+            return result;
+        }
+        if (Objects.equals(order.getOrderStatus(), OrderStatus.CANCELED)) {
+            // DR-11：已关闭订单不扣库存；自动退款由 pay 域发起（资金走 pay，R1-04 接线）
+            log.error("[DR-11] 已关闭订单收到支付成功回调，需人工退款。orderId={}, payId={}",
+                    order.getId(), dto.getPayId());
+            result.setApplied(false);
+            result.setDeducted(false);
+            return result;
+        }
+        if (!Objects.equals(order.getOrderStatus(), OrderStatus.UNPAID)) {
+            log.error("[CI-97] 非未付款订单收到支付成功回调，忽略。orderId={}, status={}",
+                    order.getId(), order.getOrderStatus());
+            result.setApplied(false);
+            result.setDeducted(false);
+            return result;
+        }
+        List<OrderGoods> lines = listGoods(order.getId());
+        List<PaySuccessResultDTO.Shortage> shortage = checkStockForPay(lines);
+        if (!shortage.isEmpty()) {
+            // P-31：库存不足 → 200 + deducted=false + shortage，订单保持 101，不自动退款
+            log.error("[CI-97] 实扣前校验库存不足，订单保持未付款。orderId={}, shortage={}",
+                    order.getId(), shortage.size());
+            result.setApplied(false);
+            result.setDeducted(false);
+            result.setShortage(shortage);
+            return result;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        boolean ok = lambdaUpdate()
+                .eq(Order::getId, order.getId())
+                .eq(Order::getOrderStatus, OrderStatus.UNPAID)
+                .eq(Order::getDeleted, false)
+                .set(Order::getOrderStatus, OrderStatus.UNDELIVERED)
+                .set(Order::getPayId, dto.getPayId())
+                .set(Order::getPayTime, now)
+                .set(Order::getUpdateTime, now)
+                .update();
+        if (!ok) {
+            result.setApplied(false);
+            result.setDeducted(false);
+            return result;
+        }
+
+        try {
+            DeductBatchResultDTO deduct = goodsClient.deductStockBatch(stockChangeOf(lines, order.getId()));
+            if (deduct != null && !deduct.isDeducted()) {
+                log.error("[CI-97] 库存实扣失败（订单已置待发货，需人工核对库存）。orderId={}, items={}",
+                        order.getId(), deduct.getItems() == null ? 0 : deduct.getItems().size());
+                result.setDeducted(false);
+                if (deduct.getItems() != null) {
+                    for (DeductBatchResultDTO.Item item : deduct.getItems()) {
+                        if (item.isDeducted() || item.getShortage() == null) {
+                            continue;
+                        }
+                        PaySuccessResultDTO.Shortage s = new PaySuccessResultDTO.Shortage();
+                        s.setProductId(item.getProductId());
+                        s.setNeed(item.getShortage());
+                        result.getShortage().add(s);
+                    }
+                }
+            } else {
+                result.setDeducted(true);
+            }
+        } catch (Exception e) {
+            log.error("[CI-97] 库存实扣异常（订单已置待发货，需人工核对库存）。orderId={}", order.getId(), e);
+            result.setDeducted(false);
+        }
+        result.setApplied(true);
+        return result;
+    }
+
+    @Override
+    public OrderGoodsStatusDTO orderGoodsStatus(Long id, Long userId) {
+        OrderGoods og = orderGoodsMapper.selectOne(new LambdaQueryWrapper<OrderGoods>()
+                .eq(OrderGoods::getId, id)
+                .eq(OrderGoods::getDeleted, false));
+        if (og == null) {
+            throw new NotFoundException("订单商品不存在", CODE_RESOURCE_NOT_FOUND);
+        }
+        Order order = orderMapper().selectOne(new LambdaQueryWrapper<Order>()
+                .eq(Order::getId, og.getOrderId())
+                .eq(Order::getDeleted, false));
+        if (order == null || (userId != null && !Objects.equals(userId, order.getUserId()))) {
+            throw new NotFoundException("订单商品不存在", CODE_RESOURCE_NOT_FOUND);
+        }
+        Integer comment = og.getComment();
+        boolean commented = comment != null && comment > 0;
+        boolean refunded = Objects.equals(og.getRefundStatus(), 2);
+        boolean statusAllowed = Objects.equals(order.getOrderStatus(), OrderStatus.CONFIRMED)
+                || Objects.equals(order.getOrderStatus(), OrderStatus.REFUND);
+
+        OrderGoodsStatusDTO dto = new OrderGoodsStatusDTO();
+        dto.setOrderGoodsId(og.getId());
+        dto.setOrderId(order.getId());
+        dto.setUserId(order.getUserId());
+        dto.setOrderStatus(order.getOrderStatus());
+        dto.setOrderStatusText(OrderStatus.label(order.getOrderStatus()));
+        dto.setRefundStatus(og.getRefundStatus());
+        dto.setRefundStatusText(AftersaleStatus.refundStatusLabel(og.getRefundStatus()));
+        dto.setRefundedNumber(og.getRefundedNumber());
+        dto.setNumber(og.getNumber());
+        dto.setCommented(commented);
+        dto.setCommentId(commented ? Long.valueOf(comment) : null);
+        dto.setCanComment(statusAllowed && !refunded && !commented);
+        return dto;
+    }
+
+    @Override
+    public LockedStockDTO lockedStock(String productIds) {
+        List<Long> ids = new ArrayList<>();
+        if (StrUtil.isNotBlank(productIds)) {
+            String[] parts = productIds.split(",");
+            if (parts.length > 200) {
+                throw new BadRequestException("productIds 数量不能超过 200", BadRequestException.PARAM_INVALID);
+            }
+            for (String raw : parts) {
+                String item = StrUtil.trimToEmpty(raw);
+                if (item.isEmpty() || !item.chars().allMatch(Character::isDigit)) {
+                    throw new BadRequestException("productIds 格式非法", BadRequestException.PARAM_INVALID);
+                }
+                long pid;
+                try {
+                    pid = Long.parseLong(item);
+                } catch (NumberFormatException e) {
+                    throw new BadRequestException("productIds 格式非法", BadRequestException.PARAM_INVALID);
+                }
+                if (ids.contains(pid)) {
+                    throw new BadRequestException("productIds 不能重复", BadRequestException.PARAM_INVALID);
+                }
+                ids.add(pid);
+            }
+        }
+        LockedStockDTO dto = new LockedStockDTO();
+        List<LockedStockDTO.Item> rows = orderMapper().selectLockedStock(ids.isEmpty() ? null : ids);
+        dto.setList(rows == null ? new ArrayList<>() : rows);
+        return dto;
+    }
+
+    /* ==================================================================== */
+    /* ==================== 共享：关单 + 释放（CI-85 / CN-10 / CN-11） ==================== */
+    /* ==================================================================== */
+
+    /**
+     * 未付款订单关闭的唯一实现（CI-85 / CN-10 / CN-11 共用，BR-ORDER-13）。
+     * <p>
+     * 顺序：CAS {@code 101 → 103}（成功才继续）→ 释放锁量与券 → 留痕。
+     * CAS 失败说明并发已被关闭/支付/发货，直接抛 409（由调用方决定文案）。
+     * </p>
+     */
+    private void closeUnpaidOrder(Order order, int closeType, Long adminId, String logAction,
+                                  String reason, String conflictMessage) {
+        LocalDateTime now = LocalDateTime.now();
+        boolean ok = lambdaUpdate()
+                .eq(Order::getId, order.getId())
+                .eq(Order::getOrderStatus, OrderStatus.UNPAID)
+                .eq(Order::getDeleted, false)
+                .set(Order::getOrderStatus, OrderStatus.CANCELED)
+                .set(Order::getCloseType, closeType)
+                .set(Order::getEndTime, now)
+                .set(Order::getUpdateTime, now)
+                .update();
+        if (!ok) {
+            throw new ConflictException(conflictMessage, CODE_ORDER_STATUS_ILLEGAL);
+        }
+        releaseOrderResources(order);
+        if (logAction != null) {
+            writeOrderLog(logAction, order.getId(), adminId, OrderStatus.closeTypeLabel(closeType), reason);
+        }
     }
 
     /**
-     * H5：管理端退款。状态机：102 待发货 / 201 已发货 / 301 已收货 → 401 售后；
-     * 401 幂等（已在售后流程中，直接成功返回，避免库存被重复回补）；
-     * 101 未付款、103 已取消、402 已退款完成一律拒绝。
-     * <p>
-     * 补偿与 {@link #cancelOrder(Long)} 复用同一套逻辑（M2 批量回补库存 + 券回退），
-     * 不再出现改造前"admin 只改状态、库存与券被绕过"的问题。
+     * 释放订单占用的资源。
+     * <ul>
+     *   <li>未支付过半（{@code pay_time == null}）：只回退优惠券——库存从未实扣，无需回补。</li>
+     *   <li>已支付（售后退款等场景）：额外回补库存。</li>
+     * </ul>
      */
-    @Override
-    @GlobalTransactional(rollbackFor = Exception.class)
-    public void adminRefund(OrderRefundDTO dto) {
-        Order order = requireOrder(dto == null ? null : dto.getOrderId());
-        Integer status = order.getOrderStatus();
-        if (status != null && status == STATUS_REFUND) {
-            // 幂等：重复提交不重复补偿
-            return;
+    private void releaseOrderResources(Order order) {
+        if (order.getCouponPrice() != null && order.getCouponPrice().signum() > 0) {
+            try {
+                CouponUseDTO rollback = new CouponUseDTO();
+                rollback.setOrderId(order.getId());
+                marketingClient.rollbackCoupon(rollback);
+            } catch (Exception e) {
+                // 券回退失败不能阻断关单（订单已关，券超时由 marketing 侧补偿），但必须留痕告警
+                log.error("[R1] 关单回退优惠券失败，需人工核对。orderId={}", order.getId(), e);
+            }
         }
-        if (status == null || (status != STATUS_UNDELIVERED
-                && status != STATUS_SHIPPED
-                && status != STATUS_CONFIRMED)) {
-            String current = statusText(status);
-            if (status != null && status == STATUS_UNPAID) {
-                throw new BadRequestException("未付款订单无需退款，请取消订单，当前状态：" + current);
+        if (order.getPayTime() != null) {
+            List<OrderGoods> lines = listGoods(order.getId());
+            if (!lines.isEmpty()) {
+                try {
+                    goodsClient.releaseStockBatch(stockChangeOf(lines, order.getId()));
+                } catch (Exception e) {
+                    log.error("[R1] 关单回补库存失败，需人工核对。orderId={}", order.getId(), e);
+                }
             }
-            if (status != null && status == STATUS_CANCELED) {
-                throw new BadRequestException("订单已取消，不可退款，当前状态：" + current);
-            }
-            if (status != null && status == STATUS_REFUND_DONE) {
-                throw new BadRequestException("订单已退款完成，不可重复退款，当前状态：" + current);
-            }
-            throw new BadRequestException("当前订单状态不可退款：" + current);
         }
-
-        // 库存回补 + 优惠券回退（与取消订单同一套既有逻辑）
-        releaseOrderStockAndCoupon(order);
-
-        LocalDateTime now = LocalDateTime.now();
-        order.setOrderStatus(STATUS_REFUND);
-        order.setRefundAmount(dto.getRefundAmount() != null ? dto.getRefundAmount() : order.getActualPrice());
-        order.setRefundType(REFUND_TYPE_ADMIN);
-        order.setRefundContent(dto.getRefundContent());
-        order.setRefundTime(now);
-        order.setUpdateTime(now);
-        updateById(order);
     }
 
-    /** H5：管理端接口的订单必存在校验（不存在/已删除一律拒绝） */
-    private Order requireOrder(Long orderId) {
-        if (orderId == null) {
-            throw new BadRequestException("订单ID不能为空");
+    /* ==================================================================== */
+    /* ==================== 私有工具 ==================== */
+    /* ==================================================================== */
+
+    private OrderMapper orderMapper() {
+        return getBaseMapper();
+    }
+
+    private Long requireUser() {
+        Long userId = UserContext.getUser();
+        if (userId == null) {
+            throw new UnauthorizedException("请先登录");
         }
-        Order order = getById(orderId);
-        if (order == null || Boolean.TRUE.equals(order.getDeleted())) {
-            throw new BadRequestException("订单不存在");
+        return userId;
+    }
+
+    /** 本人订单（不存在或非本人一律 404，不泄露存在性） */
+    private Order requireOwnOrder(Long orderId, Long userId) {
+        if (orderId == null) {
+            throw new BadRequestException("订单ID不能为空", BadRequestException.PARAM_INVALID);
+        }
+        Order order = orderMapper().selectOne(new LambdaQueryWrapper<Order>()
+                .eq(Order::getId, orderId)
+                .eq(Order::getUserId, userId)
+                .eq(Order::getDeleted, false));
+        if (order == null) {
+            throw new NotFoundException("订单不存在", CODE_ORDER_NOT_FOUND);
         }
         return order;
     }
 
-    /**
-     * H5：回补订单库存并回退优惠券。
-     * <p>
-     * 由 {@link #cancelOrder(Long)}（原实现内联于此）与管理端退款共用：
-     * 库存走 M2 的批量 RPC，优惠券回退由 marketing 服务按 orderId 反查，均不新增交互方式。
-     */
-    private void releaseOrderStockAndCoupon(Order order) {
-        // 回补库存（M2：一次批量 RPC）
-        List<OrderGoods> orderGoods = orderGoodsMapper.selectList(
-                new LambdaQueryWrapper<OrderGoods>()
-                        .eq(OrderGoods::getOrderId, order.getId())
-                        .eq(OrderGoods::getDeleted, false));
-        if (!orderGoods.isEmpty()) {
-            List<StockChangeDTO.Item> releaseItems = new ArrayList<>(orderGoods.size());
-            for (OrderGoods og : orderGoods) {
-                releaseItems.add(stockItem(og.getProductId(), og.getNumber()));
-            }
-            goodsClient.releaseStockBatch(stockChange(releaseItems));
+    /** 管理端/对内订单（不校验归属） */
+    private Order requireOrder(Long orderId) {
+        if (orderId == null) {
+            throw new BadRequestException("订单ID不能为空", BadRequestException.PARAM_INVALID);
         }
-
-        // 回退优惠券（couponUserId 为空时 marketing 服务按 orderId 反查）
-        CouponUseDTO rollback = new CouponUseDTO();
-        rollback.setOrderId(order.getId());
-        marketingClient.rollbackCoupon(rollback);
+        Order order = orderMapper().selectOne(new LambdaQueryWrapper<Order>()
+                .eq(Order::getId, orderId)
+                .eq(Order::getDeleted, false));
+        if (order == null) {
+            throw new NotFoundException("订单不存在", CODE_ORDER_NOT_FOUND);
+        }
+        return order;
     }
 
-    /* ==================== 私有方法 ==================== */
+    private AddressInfoDTO requireAddress(Long addressId) {
+        if (addressId == null) {
+            throw new BadRequestException("收货地址不能为空", CODE_ADDRESS_INVALID);
+        }
+        AddressInfoDTO address = userClient.getAddressById(addressId);
+        if (address == null) {
+            // P-09：地址已删 → 400 ADDRESS_INVALID；归属校验依赖 user 内对接口（当前未回传 userId）
+            throw new BadRequestException("收货地址不存在", CODE_ADDRESS_INVALID);
+        }
+        return address;
+    }
 
-    private OrderListItemVO toListItemVO(Order order, List<OrderGoods> goodsList) {
-        OrderListItemVO vo = new OrderListItemVO();
-        vo.setOrderId(order.getId());
-        vo.setOrderSn(order.getOrderSn());
-        vo.setStatus(statusText(order.getOrderStatus()));
-        vo.setGoodsAmount(order.getGoodsPrice());
-        vo.setFreightAmount(order.getFreightPrice());
-        vo.setCouponAmount(order.getCouponPrice());
-        vo.setOrderAmount(order.getOrderPrice());
-        vo.setActualPrice(order.getActualPrice());
-        vo.setAddTime(order.getAddTime() == null ? null : order.getAddTime().format(DT));
+    /**
+     * 解析下单行：{@code cartIds} 与 {@code buyNow} 二选一。
+     * <p>价格/规格一律以 goods 当前货品为准（购物车里的价格可能已过期）。</p>
+     */
+    private List<DraftLine> resolveDrafts(Long userId, List<Long> cartIds, OrderConfirmDTO.BuyNow buyNow) {
+        boolean hasCart = cartIds != null && !cartIds.isEmpty();
+        boolean hasBuyNow = buyNow != null;
+        if (hasCart == hasBuyNow) {
+            throw new BadRequestException("cartIds 与 buyNow 必须二选一", BadRequestException.PARAM_INVALID);
+        }
+        return hasCart ? resolveCartDrafts(userId, cartIds) : resolveBuyNowDraft(buyNow);
+    }
 
-        // 列表商品简述（不含 productId/specifications/commentStatus）；goodsList 由 listOrder 批量预取
-        vo.setGoodsList(goodsList.stream().map(og -> {
+    private List<DraftLine> resolveCartDrafts(Long userId, List<Long> cartIds) {
+        List<Long> ids = distinct(cartIds);
+        List<Cart> carts = cartMapper.selectByIds(ids);
+        Map<Long, Cart> byId = new HashMap<>();
+        for (Cart cart : carts) {
+            if (cart.getDeleted() == null || !cart.getDeleted()) {
+                byId.put(cart.getId(), cart);
+            }
+        }
+        if (byId.size() != ids.size()) {
+            throw new BadRequestException("购物车项不存在或已失效", BadRequestException.PARAM_INVALID);
+        }
+        List<DraftLine> drafts = new ArrayList<>(ids.size());
+        for (Long cartId : ids) {
+            Cart cart = byId.get(cartId);
+            if (!Objects.equals(cart.getUserId(), userId)) {
+                throw new BadRequestException("购物车项不存在或不属于当前用户", BadRequestException.PARAM_INVALID);
+            }
+            GoodsProductInfoDTO product = goodsClient.getProductInfo(cart.getProductId());
+            if (product == null) {
+                throw new NotFoundException("商品规格不存在或已下架", CODE_RESOURCE_NOT_FOUND);
+            }
+            drafts.add(toDraft(product, cart.getNumber(), cart));
+        }
+        return drafts;
+    }
+
+    private List<DraftLine> resolveBuyNowDraft(OrderConfirmDTO.BuyNow buyNow) {
+        if (buyNow.getProductId() == null || buyNow.getNumber() == null || buyNow.getNumber() < 1) {
+            throw new BadRequestException("buyNow.productId 与 buyNow.number 必填且 number ≥ 1",
+                    BadRequestException.PARAM_INVALID);
+        }
+        GoodsProductInfoDTO product = goodsClient.getProductInfo(buyNow.getProductId());
+        if (product == null) {
+            throw new NotFoundException("商品规格不存在或已下架", CODE_RESOURCE_NOT_FOUND);
+        }
+        return List.of(toDraft(product, buyNow.getNumber(), null));
+    }
+
+    private DraftLine toDraft(GoodsProductInfoDTO product, Integer number, Cart cart) {
+        int qty = number == null || number < 1 ? 0 : number;
+        if (qty == 0) {
+            throw new BadRequestException("购买数量必须大于 0", BadRequestException.PARAM_INVALID);
+        }
+        String specs = StrUtil.isNotBlank(product.getSpecifications())
+                ? product.getSpecifications()
+                : (cart == null ? null : cart.getSpecifications());
+        String skuCode = StrUtil.nullToEmpty(product.getSkuCode());
+        String specValueIds = product.getSpecValueIds() == null || product.getSpecValueIds().isEmpty()
+                ? "" : String.join(",", product.getSpecValueIds());
+        BigDecimal price = product.getPrice() != null
+                ? product.getPrice()
+                : (cart == null || cart.getPrice() == null ? BigDecimal.ZERO : cart.getPrice());
+        return new DraftLine(
+                product.getId() != null ? product.getId() : (cart == null ? null : cart.getProductId()),
+                product.getGoodsId() != null ? product.getGoodsId() : (cart == null ? null : cart.getGoodsId()),
+                StrUtil.isNotBlank(product.getGoodsName()) ? product.getGoodsName() : (cart == null ? null : cart.getGoodsName()),
+                product.getGoodsSn() != null ? product.getGoodsSn() : (cart == null ? null : cart.getGoodsSn()),
+                price,
+                qty,
+                specs,
+                product.getPicUrl() != null ? product.getPicUrl() : (cart == null ? null : cart.getPicUrl()),
+                skuCode,
+                specValueIds,
+                product.getSellable());
+    }
+
+    /** 提交前的可售校验：任一不足 → 整单 409（不生成订单、不锁任何行） */
+    private void assertSellable(List<DraftLine> drafts) {
+        for (DraftLine d : drafts) {
+            if (d.sellable() != null && d.sellable() < d.number()) {
+                throw new ConflictException(d.specText() + " 仅剩 " + d.sellable() + " 件", CODE_STOCK_NOT_ENOUGH);
+            }
+        }
+    }
+
+    /** 支付成功前的库存校验（返回缺口列表；空表示可扣） */
+    private List<PaySuccessResultDTO.Shortage> checkStockForPay(List<OrderGoods> lines) {
+        List<PaySuccessResultDTO.Shortage> shortage = new ArrayList<>();
+        for (OrderGoods og : lines) {
+            GoodsProductInfoDTO product;
+            try {
+                product = goodsClient.getProductInfo(og.getProductId());
+            } catch (Exception e) {
+                log.warn("[CI-97] 查询货品失败，跳过该行库存校验。productId={}", og.getProductId(), e);
+                continue;
+            }
+            if (product == null) {
+                continue;
+            }
+            Integer available = product.getNumber() != null ? product.getNumber() : product.getSellable();
+            int need = og.getNumber() == null ? 0 : og.getNumber();
+            if (available != null && available < need) {
+                PaySuccessResultDTO.Shortage s = new PaySuccessResultDTO.Shortage();
+                s.setProductId(og.getProductId());
+                s.setNeed(need);
+                s.setAvailable(available);
+                shortage.add(s);
+            }
+        }
+        return shortage;
+    }
+
+    private BigDecimal sumAmount(List<DraftLine> drafts) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (DraftLine d : drafts) {
+            total = total.add(d.price().multiply(BigDecimal.valueOf(d.number())));
+        }
+        return total;
+    }
+
+    private List<BigDecimal> lineAmounts(List<DraftLine> drafts) {
+        return drafts.stream()
+                .map(d -> d.price().multiply(BigDecimal.valueOf(d.number())))
+                .collect(Collectors.toList());
+    }
+
+    /** 券额试算：不可用 → 400 COUPON_NOT_USABLE；券额钳制在 [0, goodsAmount] */
+    private BigDecimal resolveCouponAmount(Long userId, Long couponId, BigDecimal goodsAmount) {
+        if (couponId == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal coupon;
+        try {
+            CouponCheckDTO check = new CouponCheckDTO();
+            check.setCouponUserId(couponId);
+            check.setGoodsAmount(goodsAmount);
+            coupon = marketingClient.checkCoupon(check);
+        } catch (Exception e) {
+            log.warn("[CI-80] 优惠券校验失败, userId={}, couponId={}", userId, couponId, e);
+            throw new BadRequestException("优惠券不可用", CODE_COUPON_NOT_USABLE);
+        }
+        if (coupon == null || coupon.signum() <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return coupon.min(goodsAmount);
+    }
+
+    private List<OrderGoods> listGoods(Long orderId) {
+        return orderGoodsMapper.selectList(new LambdaQueryWrapper<OrderGoods>()
+                .eq(OrderGoods::getOrderId, orderId)
+                .eq(OrderGoods::getDeleted, false));
+    }
+
+    private List<Aftersale> listUnfinishedAftersale(Long orderId) {
+        return aftersaleMapper.selectList(new LambdaQueryWrapper<Aftersale>()
+                .eq(Aftersale::getOrderId, orderId)
+                .eq(Aftersale::getDeleted, false)
+                .in(Aftersale::getStatus, toIntegerList(AftersaleStatus.UNFINISHED))
+                .orderByDesc(Aftersale::getId));
+    }
+
+    private long countUnfinishedAftersale(Long orderId) {
+        return aftersaleMapper.selectCount(new LambdaQueryWrapper<Aftersale>()
+                .eq(Aftersale::getOrderId, orderId)
+                .eq(Aftersale::getDeleted, false)
+                .in(Aftersale::getStatus, toIntegerList(AftersaleStatus.UNFINISHED)));
+    }
+
+    private List<Integer> toIntegerList(int[] values) {
+        List<Integer> list = new ArrayList<>(values.length);
+        for (int v : values) {
+            list.add(v);
+        }
+        return list;
+    }
+
+    private Map<Long, Aftersale> loadLatestUnfinishedAftersale(List<Long> orderIds) {
+        if (orderIds == null || orderIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Aftersale> list = aftersaleMapper.selectList(new LambdaQueryWrapper<Aftersale>()
+                .in(Aftersale::getOrderId, orderIds)
+                .eq(Aftersale::getDeleted, false)
+                .in(Aftersale::getStatus, toIntegerList(AftersaleStatus.UNFINISHED))
+                .orderByDesc(Aftersale::getId));
+        Map<Long, Aftersale> map = new LinkedHashMap<>();
+        for (Aftersale a : list) {
+            map.putIfAbsent(a.getOrderId(), a);
+        }
+        return map;
+    }
+
+    private Aftersale latestUnfinished(List<Aftersale> list) {
+        return list.isEmpty() ? null : list.get(0);
+    }
+
+    private OrderAftersaleBriefVO briefOf(Aftersale a) {
+        if (a == null) {
+            return null;
+        }
+        OrderAftersaleBriefVO vo = new OrderAftersaleBriefVO();
+        vo.setAftersaleId(a.getId());
+        vo.setAftersaleSn(a.getAftersaleSn());
+        vo.setStatus(a.getStatus());
+        vo.setStatusText(AftersaleStatus.label(a.getStatus()));
+        vo.setType(a.getType());
+        vo.setTypeText(AftersaleStatus.typeLabel(a.getType()));
+        return vo;
+    }
+
+    private List<OrderDetailLineVO> buildDetailLines(Order order, List<OrderGoods> lines,
+                                                     List<Aftersale> unfinished) {
+        Map<Long, Integer> unfinishedQty = new HashMap<>();
+        for (Aftersale a : unfinished) {
+            if (a.getOrderGoodsId() == null) {
+                continue;
+            }
+            int qty = a.getNumber() == null ? 0 : a.getNumber();
+            unfinishedQty.merge(a.getOrderGoodsId(), qty, Integer::sum);
+        }
+        List<OrderDetailLineVO> list = new ArrayList<>(lines.size());
+        for (OrderGoods og : lines) {
+            OrderDetailLineVO vo = new OrderDetailLineVO();
+            vo.setOrderGoodsId(og.getId());
+            vo.setProductId(og.getProductId());
+            vo.setGoodsName(og.getGoodsName());
+            vo.setSpecText(specText(og.getSpecifications()));
+            vo.setPrice(Money.fen(og.getPrice()));
+            vo.setNumber(og.getNumber());
+            vo.setActualAmount(Money.fen(og.getActualAmount()));
+            vo.setCouponShare(Money.fen(og.getCouponShare()));
+            vo.setRefundedNumber(og.getRefundedNumber());
+            vo.setRefundStatus(og.getRefundStatus());
+            vo.setRefundStatusText(AftersaleStatus.refundStatusLabel(og.getRefundStatus()));
+            vo.setCanApply(canApply(order, og, unfinishedQty.getOrDefault(og.getId(), 0)));
+            list.add(vo);
+        }
+        return list;
+    }
+
+    /**
+     * 行级售后可申请信息（CI-84 canApply；实时计算、不缓存）。
+     * <p>
+     * 规则（与 07 §4.1 CI-91 的判定顺序一致，售后侧以同一口径做二次校验）：
+     * 订单必须已支付且未关闭；行未全额退款；行剩余可申请件数 &gt; 0；301 需在 confirm_time+7 天内。
+     * 仅退款(1) 在待发货即可申请；退货退款(2) 需已发货/已收货。
+     * </p>
+     */
+    private OrderDetailLineVO.CanApply canApply(Order order, OrderGoods og, int unfinishedQty) {
+        OrderDetailLineVO.CanApply can = new OrderDetailLineVO.CanApply();
+        can.setTypes(new ArrayList<>());
+        can.setMaxQty(0);
+        Integer status = order.getOrderStatus();
+        if (Objects.equals(status, OrderStatus.UNPAID)) {
+            can.setReason("订单未支付");
+            return can;
+        }
+        if (Objects.equals(status, OrderStatus.CANCELED)) {
+            can.setReason("订单已关闭");
+            return can;
+        }
+        if (Objects.equals(status, OrderStatus.COMPLETED)) {
+            can.setReason("订单已完成");
+            return can;
+        }
+        if (Objects.equals(status, OrderStatus.REFUND) || Objects.equals(status, OrderStatus.REFUND_DONE)) {
+            can.setReason("订单退款中");
+            return can;
+        }
+        if (Objects.equals(og.getRefundStatus(), 2)) {
+            can.setReason("该行已全额退款");
+            return can;
+        }
+        int number = og.getNumber() == null ? 0 : og.getNumber();
+        int refunded = og.getRefundedNumber() == null ? 0 : og.getRefundedNumber();
+        int remain = number - refunded - unfinishedQty;
+        if (remain <= 0) {
+            can.setReason(unfinishedQty > 0 ? "该行退款中" : "该行已无可申请件数");
+            return can;
+        }
+        if (Objects.equals(status, OrderStatus.CONFIRMED) && order.getConfirmTime() != null
+                && order.getConfirmTime().plusDays(AFTERSALE_WINDOW_DAYS).isBefore(LocalDateTime.now())) {
+            can.setReason("已超 " + AFTERSALE_WINDOW_DAYS + " 天");
+            return can;
+        }
+        List<Integer> types = new ArrayList<>();
+        types.add(AftersaleStatus.TYPE_REFUND_ONLY);
+        if (Objects.equals(status, OrderStatus.SHIPPED) || Objects.equals(status, OrderStatus.CONFIRMED)) {
+            types.add(AftersaleStatus.TYPE_RETURN_GOODS);
+        }
+        can.setTypes(types);
+        can.setMaxQty(remain);
+        return can;
+    }
+
+    private List<OrderTimelineVO> buildTimeline(Order order) {
+        List<OrderTimelineVO> list = new ArrayList<>();
+        addTimeline(list, order.getAddTime(), "user", "用户", "提交订单");
+        addTimeline(list, order.getPayTime(), "user", "用户", "支付成功");
+        addTimeline(list, order.getShipTime(), "admin", "管理员", "已发货");
+        addTimeline(list, order.getConfirmTime(), "user", "用户", "确认收货");
+        String closeAction = order.getCloseType() == null
+                ? "订单关闭"
+                : "订单关闭（" + OrderStatus.closeTypeLabel(order.getCloseType()) + "）";
+        addTimeline(list, order.getEndTime(), "system", "系统", closeAction);
+        list.sort(Comparator.comparing(OrderTimelineVO::getTime));
+        return list;
+    }
+
+    private void addTimeline(List<OrderTimelineVO> list, LocalDateTime time,
+                             String actor, String actorText, String action) {
+        if (time == null) {
+            return;
+        }
+        OrderTimelineVO vo = new OrderTimelineVO();
+        vo.setTime(time.format(DT));
+        vo.setActor(actor);
+        vo.setActorText(actorText);
+        vo.setAction(action);
+        list.add(vo);
+    }
+
+    private int shipUpdateCount(Long orderId) {
+        Long count = orderLogMapper.selectCount(new LambdaQueryWrapper<OrderLog>()
+                .eq(OrderLog::getTargetType, LOG_TARGET_TYPE)
+                .eq(OrderLog::getTargetId, orderId)
+                .eq(OrderLog::getAction, LOG_SHIP_UPDATE)
+                .eq(OrderLog::getDeleted, false));
+        return count == null ? 0 : count.intValue();
+    }
+
+    /** 运营动作留痕（litemall_log；admin 列存 adminId 字符串，缺失记 null，禁止伪造 0） */
+    private void writeOrderLog(String action, Long orderId, Long adminId, String result, String comment) {
+        LocalDateTime now = LocalDateTime.now();
+        OrderLog logRow = new OrderLog()
+                .setAction(action)
+                .setTargetType(LOG_TARGET_TYPE)
+                .setTargetId(orderId)
+                .setAdmin(adminId == null ? null : String.valueOf(adminId))
+                .setStatus(1)
+                .setResult(StrUtil.maxLength(result, 120))
+                .setComment(StrUtil.maxLength(comment, 250))
+                .setAddTime(now)
+                .setUpdateTime(now)
+                .setDeleted(false);
+        try {
+            orderLogMapper.insert(logRow);
+        } catch (Exception e) {
+            log.error("[R1] 订单操作日志写入失败, action={}, orderId={}", action, orderId, e);
+        }
+    }
+
+    private String requireShipField(String value, String label) {
+        String v = StrUtil.trimToNull(value);
+        if (v == null) {
+            throw new BadRequestException(label + "不能为空", BadRequestException.PARAM_INVALID);
+        }
+        if (v.length() > 64) {
+            throw new BadRequestException(label + "不能超过 64 字", BadRequestException.PARAM_INVALID);
+        }
+        return v;
+    }
+
+    private LocalDateTime parseTime(String value, String field) {
+        String v = StrUtil.trimToNull(value);
+        if (v == null) {
+            return null;
+        }
+        try {
+            return LocalDateTime.parse(v, DT);
+        } catch (DateTimeParseException e) {
+            throw new BadRequestException(field + " 时间格式应为 yyyy-MM-dd HH:mm:ss", BadRequestException.PARAM_INVALID);
+        }
+    }
+
+    private List<Integer> parseAftersaleMulti(String statuses) {
+        List<Integer> codes = new ArrayList<>();
+        for (String raw : statuses.split(",")) {
+            String item = StrUtil.trimToEmpty(raw);
+            if (item.isEmpty()) {
+                return null;
+            }
+            Integer code = AftersaleStatus.parse(item);
+            if (code == null) {
+                return null;
+            }
+            if (!codes.contains(code)) {
+                codes.add(code);
+            }
+        }
+        return codes;
+    }
+
+    private String goodsSummary(List<OrderGoods> lines) {
+        if (lines.isEmpty()) {
+            return "";
+        }
+        String first = StrUtil.nullToEmpty(lines.get(0).getGoodsName());
+        if (lines.size() == 1) {
+            return first;
+        }
+        return first + " 等 " + lines.size() + " 件";
+    }
+
+    /** 列表/详情用的 goodsList（现状保留字段，P-12） */
+    private List<OrderGoodsVO> listOrderGoods(List<OrderGoods> lines) {
+        return lines.stream().map(og -> {
             OrderGoodsVO g = new OrderGoodsVO();
+            g.setOrderGoodsId(og.getId());
             g.setGoodsId(og.getGoodsId());
             g.setGoodsName(og.getGoodsName());
             g.setPicUrl(og.getPicUrl());
             g.setNumber(og.getNumber());
-            g.setPrice(og.getPrice());
+            g.setPrice(Money.fen(og.getPrice()));
+            g.setSpecText(specText(og.getSpecifications()));
+            g.setProductId(og.getProductId());
+            g.setSpecifications(parseSpecList(og.getSpecifications()));
+            g.setRefundStatus(og.getRefundStatus());
+            g.setRefundStatusText(AftersaleStatus.refundStatusLabel(og.getRefundStatus()));
+            g.setCommentStatus(og.getComment() == null ? 0 : og.getComment());
             return g;
-        }).collect(Collectors.toList()));
+        }).collect(Collectors.toList());
+    }
+
+    private OrderListItemVO toListItemVO(Order order, List<OrderGoods> lines) {
+        OrderListItemVO vo = new OrderListItemVO();
+        vo.setOrderId(order.getId());
+        vo.setOrderSn(order.getOrderSn());
+        vo.setStatus(OrderStatus.ident(order.getOrderStatus()));
+        vo.setStatusText(OrderStatus.label(order.getOrderStatus()));
+        vo.setGoodsAmount(Money.fen(order.getGoodsPrice()));
+        vo.setFreightAmount(Money.fen(order.getFreightPrice()));
+        vo.setCouponAmount(Money.fen(order.getCouponPrice()));
+        vo.setOrderAmount(Money.fen(order.getOrderPrice()));
+        vo.setFullyRefunded(OrderRules.isFullyRefunded(lines));
+        vo.setRefundedAmount(Money.fen(OrderRules.refundedAmount(lines)));
+        vo.setHasUnreviewed(OrderRules.hasUnreviewed(lines));
+        vo.setExpireTime(Objects.equals(order.getOrderStatus(), OrderStatus.UNPAID)
+                ? format(order.getExpireTime()) : null);
+        vo.setAddTime(format(order.getAddTime()));
+        vo.setGoodsList(listOrderGoods(lines));
         return vo;
     }
 
@@ -583,27 +1582,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         List<Long> orderIds = orders.stream().map(Order::getId).collect(Collectors.toList());
         List<OrderGoods> all = orderGoodsMapper.selectList(new LambdaQueryWrapper<OrderGoods>()
                 .in(OrderGoods::getOrderId, orderIds)
-                .eq(OrderGoods::getDeleted, false));
+                .eq(OrderGoods::getDeleted, false)
+                .orderByAsc(OrderGoods::getId));
         return all.stream().collect(Collectors.groupingBy(OrderGoods::getOrderId));
-    }
-
-    private List<OrderGoodsVO> listOrderGoods(Long orderId) {
-        List<OrderGoods> goodsList = orderGoodsMapper.selectList(
-                new LambdaQueryWrapper<OrderGoods>()
-                        .eq(OrderGoods::getOrderId, orderId)
-                        .eq(OrderGoods::getDeleted, false));
-        return goodsList.stream().map(og -> {
-            OrderGoodsVO g = new OrderGoodsVO();
-            g.setGoodsId(og.getGoodsId());
-            g.setGoodsName(og.getGoodsName());
-            g.setPicUrl(og.getPicUrl());
-            g.setNumber(og.getNumber());
-            g.setPrice(og.getPrice());
-            g.setProductId(og.getProductId());
-            g.setSpecifications(parseSpecList(og.getSpecifications()));
-            g.setCommentStatus(og.getComment() == null ? 0 : og.getComment());
-            return g;
-        }).collect(Collectors.toList());
     }
 
     /** specifications 形如 ["红色","XL"]，解析为数组 */
@@ -618,6 +1599,15 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         }
     }
 
+    /** 规格文案：数组 join(" / ")，无规格返回 null */
+    private String specText(String json) {
+        List<String> specs = parseSpecList(json);
+        if (specs.isEmpty()) {
+            return null;
+        }
+        return String.join(" / ", specs);
+    }
+
     /** 拼接完整收货地址 */
     private String fullAddress(AddressInfoDTO address) {
         return StrUtil.nullToEmpty(address.getProvince())
@@ -626,11 +1616,75 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 + StrUtil.nullToEmpty(address.getAddress());
     }
 
+    private String format(LocalDateTime time) {
+        return time == null ? null : time.format(DT);
+    }
+
+    private List<Long> distinct(List<Long> ids) {
+        return ids.stream().filter(Objects::nonNull).distinct().collect(Collectors.toList());
+    }
+
+    /**
+     * 幂等参数指纹：cartIds（排序去重）+ buyNow + addressId + couponId + message。
+     * <p>同 idemToken 但指纹不同 → 409 IDEMPOTENT_CONFLICT（07 §2.2）。</p>
+     */
+    private String fingerprint(OrderSubmitDTO dto) {
+        List<Long> carts = dto.getCartIds() == null ? List.of()
+                : dto.getCartIds().stream().filter(Objects::nonNull).sorted().collect(Collectors.toList());
+        String buyNow = dto.getBuyNow() == null ? "-"
+                : dto.getBuyNow().getProductId() + "x" + dto.getBuyNow().getNumber();
+        String raw = carts + "|" + buyNow + "|" + dto.getAddressId() + "|" + dto.getCouponId()
+                + "|" + StrUtil.nullToEmpty(dto.getMessage());
+        return DigestUtil.md5Hex(raw);
+    }
+
+    private void rememberIdemResult(String reqKey, String fingerprint, OrderSubmitVO vo) {
+        try {
+            String payload = fingerprint + "|" + JSONUtil.toJsonStr(vo);
+            stringRedisTemplate.opsForValue().set(reqKey, payload,
+                    RedisKeys.ORDER_IDEM_TTL_SECONDS, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.warn("[M4] 幂等首次结果缓存失败（同键重放将退化为 409）, key={}", reqKey, e);
+        }
+    }
+
+    private OrderSubmitVO replayIdemResult(String reqKey, String fingerprint) {
+        String payload;
+        try {
+            payload = stringRedisTemplate.opsForValue().get(reqKey);
+        } catch (Exception e) {
+            log.warn("[M4] 读取幂等首次结果失败, key={}", reqKey, e);
+            return null;
+        }
+        if (payload == null) {
+            return null;
+        }
+        int idx = payload.indexOf('|');
+        if (idx <= 0) {
+            return null;
+        }
+        if (!fingerprint.equals(payload.substring(0, idx))) {
+            return null;
+        }
+        try {
+            return JSONUtil.toBean(payload.substring(idx + 1), OrderSubmitVO.class);
+        } catch (Exception e) {
+            log.warn("[M4] 解析幂等首次结果失败, key={}", reqKey, e);
+            return null;
+        }
+    }
+
+    /** USED --(原子)--> ROLLED_BACK（保留原 TTL）；失败不影响主流程 */
+    private void rollbackIdemUsed(String idemKey) {
+        try {
+            stringRedisTemplate.execute(IDEM_ROLLBACK_SCRIPT, List.of(idemKey));
+        } catch (Exception e) {
+            log.warn("[M4] 幂等 token 回退失败（该 token 将在 TTL 到期后才能重试）, key={}", idemKey, e);
+        }
+    }
+
     /**
      * 生成订单编号（M3）：{@code yyyyMMddHHmmss}(14) + 4 位进程内序列(hex) + 4 位随机(hex)，共 22 位。
-     * <p>
-     * 原实现"count 查重 + 冲突时递归调用自身"存在两个问题：并发下仍会重号（查重与插入非原子），
-     * 且冲突时递归无上界。现在改为低碰撞率的组合号 + 由 DB 唯一索引兜底（见 saveOrder）。
      */
     private String generateOrderSn() {
         long seq = SN_SEQUENCE.getAndIncrement() & 0xFFFFL;
@@ -640,9 +1694,6 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
     /**
      * M3：保存订单；若 {@code order_sn} 唯一索引冲突则换号重试（最多 {@link #SN_MAX_RETRY} 次）。
-     * <p>
-     * 依赖 DDL：{@code litemall_order} 增加 {@code uk_order_sn(order_sn)}（见交付报告"需人工确认"项）。
-     * 未加索引时该方法等价于直接 save（不会误伤正常路径）。
      */
     private void saveOrder(Order order) {
         for (int attempt = 0; ; attempt++) {
@@ -659,74 +1710,47 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         }
     }
 
-    /* ==================== M4：幂等 token 状态机 ==================== */
-
-    /** INIT / ROLLED_BACK --(原子)--> USED；返回 false 表示 token 不存在/已过期/已被消费 */
-    private boolean markIdemUsed(String idemKey) {
-        String result;
-        try {
-            result = stringRedisTemplate.execute(IDEM_MARK_SCRIPT, List.of(idemKey));
-        } catch (Exception e) {
-            log.error("[M4] 幂等 token 状态推进失败, key={}", idemKey, e);
-            throw new BadRequestException("订单提交校验失败，请稍后重试");
+    /** 订单行 → 库存变更项（实扣/回补共用；携带 orderGoodsId 供审计） */
+    private StockChangeDTO stockChangeOf(List<OrderGoods> lines, Long orderId) {
+        List<StockChangeDTO.Item> items = new ArrayList<>(lines.size());
+        for (OrderGoods og : lines) {
+            if (og.getProductId() == null || og.getNumber() == null) {
+                continue;
+            }
+            StockChangeDTO.Item item = new StockChangeDTO.Item();
+            item.setProductId(og.getProductId());
+            item.setNumber(og.getNumber());
+            item.setOrderGoodsId(og.getId());
+            items.add(item);
         }
-        return IDEM_OK.equals(result);
-    }
-
-    /** USED --(原子)--> ROLLED_BACK（保留原 TTL）；失败不影响主流程 */
-    private void rollbackIdemUsed(String idemKey) {
-        try {
-            stringRedisTemplate.execute(IDEM_ROLLBACK_SCRIPT, List.of(idemKey));
-        } catch (Exception e) {
-            log.warn("[M4] 幂等 token 回退失败（该 token 将在 TTL 到期后才能重试）, key={}", idemKey, e);
-        }
-    }
-
-    /** M2：构造单个库存变更项 */
-    private StockChangeDTO.Item stockItem(Long productId, Integer number) {
-        StockChangeDTO.Item item = new StockChangeDTO.Item();
-        item.setProductId(productId);
-        item.setNumber(number);
-        return item;
-    }
-
-    /** M2：构造批量库存变更请求体 */
-    private StockChangeDTO stockChange(List<StockChangeDTO.Item> items) {
         StockChangeDTO dto = new StockChangeDTO();
         dto.setItems(items);
+        dto.setOrderId(orderId);
         return dto;
     }
 
-    /** 文档状态串 → 老项目 order_status */
-    private Integer parseStatus(String status) {
-        if (StrUtil.isBlank(status)) {
-            return null;
-        }
-        return switch (status) {
-            case "unpaid" -> STATUS_UNPAID;
-            case "undelivered" -> STATUS_UNDELIVERED;
-            case "shipped" -> STATUS_SHIPPED;
-            case "confirmed" -> STATUS_CONFIRMED;
-            case "refund" -> STATUS_REFUND;
-            default -> null;
-        };
-    }
+    /**
+     * 下单行草稿（解析后的商品快照来源）。
+     * <p>{@code specText} 由 {@code specifications} JSON 派生，用于 409 STOCK_NOT_ENOUGH 文案。</p>
+     */
+    private record DraftLine(Long productId, Long goodsId, String goodsName, String goodsSn,
+                             BigDecimal price, int number, String specifications, String picUrl,
+                             String skuCode, String specValueIds, Integer sellable) {
 
-    /** 老项目 order_status → 文档状态串 */
-    private String statusText(Integer orderStatus) {
-        if (orderStatus == null) {
-            return null;
+        String specText() {
+            List<String> specs = parseSpecifications(specifications);
+            return specs.isEmpty() ? StrUtil.nullToEmpty(goodsName) : String.join(" / ", specs);
         }
-        return switch (orderStatus) {
-            case STATUS_UNPAID -> "unpaid";
-            case STATUS_UNDELIVERED -> "undelivered";
-            case STATUS_CANCELED -> "canceled";
-            case STATUS_SHIPPED -> "shipped";
-            case STATUS_CONFIRMED -> "confirmed";
-            case STATUS_REFUND -> "refund";
-            // H5：402 退款完成与 401 对外同样呈现为"退款"，对齐 pay 服务的 mapStatus(refunded)
-            case STATUS_REFUND_DONE -> "refund";
-            default -> "unknown";
-        };
+
+        private static List<String> parseSpecifications(String json) {
+            if (StrUtil.isBlank(json)) {
+                return List.of();
+            }
+            try {
+                return JSONUtil.toList(json, String.class);
+            } catch (Exception e) {
+                return List.of(json);
+            }
+        }
     }
 }

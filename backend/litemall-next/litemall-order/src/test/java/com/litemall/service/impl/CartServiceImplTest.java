@@ -229,9 +229,9 @@ class CartServiceImplTest {
 
         OrderConfirmVO vo = cartService.confirmOrder(confirmDTO(1L));
 
-        assertThat(vo.getGoodsAmount()).isEqualByComparingTo("30");
-        assertThat(vo.getCouponAmount()).isEqualByComparingTo("30");
-        assertThat(vo.getOrderAmount()).isEqualByComparingTo("0");
+        assertThat(vo.getGoodsAmount()).isEqualTo(3000);
+        assertThat(vo.getCouponAmount()).isEqualTo(3000);
+        assertThat(vo.getOrderAmount()).isEqualTo(0);
     }
 
     @Test
@@ -242,8 +242,8 @@ class CartServiceImplTest {
 
         OrderConfirmVO vo = cartService.confirmOrder(confirmDTO(1L));
 
-        assertThat(vo.getCouponAmount()).isEqualByComparingTo("0");
-        assertThat(vo.getOrderAmount()).isEqualByComparingTo("30");
+        assertThat(vo.getCouponAmount()).isEqualTo(0);
+        assertThat(vo.getOrderAmount()).isEqualTo(3000);
     }
 
     @Test
@@ -254,8 +254,8 @@ class CartServiceImplTest {
 
         OrderConfirmVO vo = cartService.confirmOrder(confirmDTO(1L));
 
-        assertThat(vo.getCouponAmount()).isEqualByComparingTo("0");
-        assertThat(vo.getOrderAmount()).isEqualByComparingTo("30");
+        assertThat(vo.getCouponAmount()).isEqualTo(0);
+        assertThat(vo.getOrderAmount()).isEqualTo(3000);
     }
 
     @Test
@@ -267,10 +267,10 @@ class CartServiceImplTest {
 
         OrderConfirmVO vo = cartService.confirmOrder(confirmDTO(1L, 2L));
 
-        assertThat(vo.getGoodsAmount()).isEqualByComparingTo("40");
-        assertThat(vo.getCouponAmount()).isEqualByComparingTo("5");
-        assertThat(vo.getOrderAmount()).isEqualByComparingTo("35");
-        assertThat(vo.getFreightAmount()).isEqualByComparingTo("0");
+        assertThat(vo.getGoodsAmount()).isEqualTo(4000);
+        assertThat(vo.getCouponAmount()).isEqualTo(500);
+        assertThat(vo.getOrderAmount()).isEqualTo(3500);
+        assertThat(vo.getFreightAmount()).isEqualTo(0);
     }
 
     /* ==================== 夹具 ==================== */

@@ -1,0 +1,110 @@
+# ============================================================================
+# litemall-next 共享配置（9 个服务的公共样板，抽取自各服务原 application.yaml）
+#
+# 引入方式：各服务 application.yaml 的 spring.config.import 增加一行
+#   - optional:classpath:common.yaml
+# 本文件随 litemall-common-core 打包进 classpath（所有服务都依赖该模块），
+# 因此不依赖服务启动目录，容器/CI 中同样可靠。
+#
+# 覆盖规则：被 import 的配置文件优先级低于声明它的主文档（application.yaml），
+# 因此本文件提供"默认值"，服务自身 yaml 中同名键可覆盖（如 gateway 覆盖 seata.enabled）。
+#
+# 环境变量约定：环境相关取值一律使用 ${HM_*} 占位符；
+# 默认值保持与 M12 配置治理后一致（本环境 dev 中间件 192.168.96.129 实测可达）。
+# ============================================================================
+
+server:
+  # H3：默认只绑回环；容器/对外部署用 HM_SERVER_BIND 覆盖为 0.0.0.0
+  address: ${HM_SERVER_BIND:127.0.0.1}
+
+spring:
+  # M12 铺垫：默认 dev（本地/联调），生产必须用 HM_ACTIVE_PROFILE=prod 覆盖
+  profiles:
+    active: ${HM_ACTIVE_PROFILE:dev}
+  # 本地开发机密（application-local.yaml 不进 git、不进 jar）：
+  # 9 个服务的 application.yaml 不再各自重复这 3 条 import，统一在本文件声明。
+  # file: 相对路径按运行目录（CWD）解析：服务从模块目录启动时 ../ 命中仓库根
+  # backend/litemall-next/application-local.yaml（换机器只需复制 example 一份）。
+  # 文件不存在时静默跳过；生产由环境变量/Secret 注入同名键，优先级天然更高。
+  config:
+    import:
+      - optional:file:./application-local.yaml
+      - optional:file:./config/application-local.yaml
+      - optional:file:../application-local.yaml
+  # 数据源（网关 WebFlux 无 jdbc 依赖，多余的配置键不会被装配，无副作用）
+  # 命名约定：占位符与环境变量、文档统一为 HM_* 大写；dev 由各服务 application-dev.yaml 提供同名键
+  datasource:
+    url: jdbc:mysql://${HM_DB_HOST:127.0.0.1}:${HM_DB_PORT:3306}/${HM_DB_NAME:litemall}?useUnicode=true&characterEncoding=UTF-8&autoReconnect=true&serverTimezone=Asia/Shanghai
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # M12/H5：账号不再写死 root，由 HM_DB_USER 注入（默认值仍为 root 以保持现有 dev 可跑）
+    username: ${HM_DB_USER:root}
+    # M12：口令无默认值——dev 由 application-dev.yaml 提供，prod 必须由环境变量 HM_DB_PW 注入
+    password: ${HM_DB_PW}
+  data:
+    redis:
+      host: ${HM_REDIS_HOST:127.0.0.1}
+      port: ${HM_REDIS_PORT:6379}
+      password: ${HM_REDIS_PW:}
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+  cloud:
+    nacos:
+      # M12：中间件地址由环境变量注入；默认值为本环境的 dev 中间件（实测可达），可整体替换以切换环境
+      server-addr: ${HM_NACOS_ADDR:192.168.96.129:8848}
+    sentinel:
+      # 9 个服务原配置一致：关闭 Spring Cloud Sentinel 自动配置（避免 WebMvc 拦截器 bean 冲突）
+      enabled: false
+      transport:
+        dashboard: localhost:8090
+
+mybatis-plus:
+  configuration:
+    default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.MybatisEnumTypeHandler
+  global-config:
+    db-config:
+      update-strategy: not_null
+      id-type: auto
+
+# Seata：业务服务启用；网关不参与分布式事务，在 gateway/application.yaml 中显式覆盖 enabled: false
+seata:
+  enabled: true
+  application-id: ${spring.application.name}
+  tx-service-group: default_tx_group
+  registry:
+    type: nacos
+    nacos:
+      application: seata-server
+      server-addr: ${HM_SEATA_ADDR:192.168.96.129:8848}
+      group: SEATA_GROUP
+      namespace: ""
+      cluster: default
+      username: ""
+      password: ""
+  service:
+    vgroup-mapping:
+      default_tx_group: default
+
+sentinel:
+  enabled: false
+
+logging:
+  level:
+    # M12：清掉历史遗留的错误命名空间（原 logger 名不属于本项目）
+    com.litemall: ${HM_LOG_LEVEL_APP:DEBUG}
+  pattern:
+    dateformat: HH:mm:ss:SSS
+  file:
+    path: "logs/${spring.application.name}"
+
+hm:
+  # H3：/inner/** 内部调用共享密钥，由环境变量 HM_INTERNAL_TOKEN 注入
+  internal:
+    token: ${HM_INTERNAL_TOKEN:}
+  # R1 Q9=①（03 实施口径 Q9）：售后退货地址为**全局配置**，唯一 key，仅 order 侧读取、
+  # admin 只透传、不落库（35 列不变）。默认空 = 未配置：type=2 申请时若此处为空且请求未传
+  # returnAddress → 400 PARAM_INVALID。
+  aftersale:
+    returnAddress: ${HM_AFTERSALE_RETURN_ADDRESS:}

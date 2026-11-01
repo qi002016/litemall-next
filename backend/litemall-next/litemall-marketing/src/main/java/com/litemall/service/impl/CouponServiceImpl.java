@@ -11,6 +11,8 @@ import com.litemall.domain.PageVO;
 import com.litemall.domain.VO.CouponReceiveResultVO;
 import com.litemall.domain.VO.CouponUserVO;
 import com.litemall.domain.VO.CouponVO;
+import com.litemall.domain.VO.UsableCouponVO;
+import com.litemall.domain.VO.UsableCouponsVO;
 import com.litemall.exception.BadRequestException;
 import com.litemall.exception.UnauthorizedException;
 import com.litemall.mapper.CouponMapper;
@@ -21,14 +23,18 @@ import com.litemall.utils.BeanUtils;
 import com.litemall.utils.UserContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -107,6 +113,16 @@ public class CouponServiceImpl extends ServiceImpl<CouponMapper, Coupon> impleme
             throw new UnauthorizedException("请先登录");
         }
 
+        // 0.一人一券：uk_coupon_user(coupon_id,user_id) 已建，台账里已有该券（含已使用/已过期/已软删）
+        // 即视为「已领过」。必须在防刷锁之前判定，否则重复领取会被「领取过于频繁」掩盖，
+        // 与「已领完」也无法区分（08 §4.2：两者文案必须可区分，且不得报 500）
+        Long received = couponUserMapper.selectCount(new LambdaQueryWrapper<CouponUser>()
+                .eq(CouponUser::getCouponId, couponId)
+                .eq(CouponUser::getUserId, userId));
+        if (received != null && received > 0) {
+            throw new BadRequestException("你已领过这张券");
+        }
+
         // 1.防刷：同用户同券 60s 内仅允许一次
         String lockKey = RECEIVE_LOCK_KEY + couponId + ":" + userId;
         Boolean ok = stringRedisTemplate.opsForValue()
@@ -148,7 +164,8 @@ public class CouponServiceImpl extends ServiceImpl<CouponMapper, Coupon> impleme
                         resolveReceiveLimitTtl(coupon, now).getSeconds(), TimeUnit.SECONDS);
             }
             if (cnt != null && cnt > limit) {
-                throw new BadRequestException("已达到最大领取数量");
+                // 一人一券券（limit=1）超领即「已领过」，与「已领完」区分（08 §4.2）
+                throw new BadRequestException(limit == 1 ? "你已领过这张券" : "已达到最大领取数量");
             }
         }
 
@@ -240,6 +257,16 @@ public class CouponServiceImpl extends ServiceImpl<CouponMapper, Coupon> impleme
                 return;
             }
 
+            // 一人一券兜底（MQ 重投/并发）：台账里已有该券时不再出券；DB total 尚未扣减，无需回补
+            Long existed = couponUserMapper.selectCount(new LambdaQueryWrapper<CouponUser>()
+                    .eq(CouponUser::getCouponId, couponId)
+                    .eq(CouponUser::getUserId, userId));
+            if (existed != null && existed > 0) {
+                rollbackStockPreDeduction(couponId, userId);
+                writeFail(resultKey, "你已领过这张券");
+                return;
+            }
+
             // DB 原子扣库存兜底
             int total = coupon.getTotal() == null ? 0 : coupon.getTotal();
             if (total > 0) {
@@ -269,7 +296,23 @@ public class CouponServiceImpl extends ServiceImpl<CouponMapper, Coupon> impleme
                     .setAddTime(now)
                     .setUpdateTime(now)
                     .setDeleted(false);
-            couponUserMapper.insert(record);
+            try {
+                couponUserMapper.insert(record);
+            } catch (DuplicateKeyException e) {
+                // 一人一券：uk_coupon_user(coupon_id, user_id) 撞键说明并发/重投下该用户已领过这张券。
+                // 必须与「优惠券已领完」文案可区分，且不得冒泡成 500 或「系统异常，领取失败」（08 §4.2）
+                log.warn("一人一券拦截: couponId={}, userId={}", couponId, userId);
+                if (total > 0) {
+                    // 上面已原子扣减过 total，撞键即未出券，需回补
+                    lambdaUpdate()
+                            .setSql("total = total + 1")
+                            .eq(Coupon::getId, couponId)
+                            .update();
+                }
+                rollbackStockPreDeduction(couponId, userId);
+                writeFail(resultKey, "你已领过这张券");
+                return;
+            }
 
             CouponUserVO vo = new CouponUserVO();
             vo.setId(record.getId());
@@ -424,6 +467,129 @@ public class CouponServiceImpl extends ServiceImpl<CouponMapper, Coupon> impleme
             return vo;
         }).collect(Collectors.toList());
         return new PageVO<>(couponUserPage.getTotal(), couponUserPage.getPages(), couponUserVOList);
+    }
+
+    /**
+     * CN-19：可用券试算。只读，不占券、不改任何状态。
+     * <p>
+     * 展示范围按 03 卡 D-14 冻结口径：仅「券本身正常（coupon.status=0）、我的券未使用（coupon_user.status=0）、
+     * 未过期」的券进入列表；其余券不展示，因此主要可命中的不可用原因只有「未到使用时间」与「差 X 元可用」，
+     * 另保留「已过期」防御分支（券自身 time_type=1 且 coupon.end_time 已过，而 coupon_user.end_time 为空的情形）。
+     * </p>
+     * <p>
+     * 排序：可用在前 → 券面额降序 → 到期时间升序（空值列末）；deductAmount 不可用时为 0，且恒不超过 goodsAmount。
+     * </p>
+     */
+    @Override
+    public UsableCouponsVO getUsableCoupons(Integer goodsAmountCents) {
+        Long userId = UserContext.getUser();
+        if (userId == null) {
+            throw new UnauthorizedException("请先登录");
+        }
+        if (goodsAmountCents == null || goodsAmountCents < 0) {
+            throw new BadRequestException("商品金额不合法", BadRequestException.PARAM_INVALID);
+        }
+
+        UsableCouponsVO result = new UsableCouponsVO();
+        result.setGoodsAmount(goodsAmountCents);
+        result.setCoupons(List.of());
+
+        List<CouponUser> couponUsers = couponUserMapper.selectList(new LambdaQueryWrapper<CouponUser>()
+                .eq(CouponUser::getUserId, userId)
+                .eq(CouponUser::getDeleted, false)
+                .eq(CouponUser::getStatus, (short) 0));
+        if (couponUsers == null || couponUsers.isEmpty()) {
+            return result;
+        }
+
+        List<Long> couponIds = couponUsers.stream()
+                .map(CouponUser::getCouponId)
+                .filter(couponId -> couponId != null)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, Coupon> couponMap = couponIds.isEmpty() ? Map.of()
+                : listByIds(couponIds).stream()
+                .collect(Collectors.toMap(Coupon::getId, coupon -> coupon, (a, b) -> a));
+
+        LocalDateTime now = LocalDateTime.now();
+        List<UsableCouponVO> coupons = new ArrayList<>();
+        for (CouponUser couponUser : couponUsers) {
+            Coupon coupon = couponMap.get(couponUser.getCouponId());
+            if (coupon == null || Boolean.TRUE.equals(coupon.getDeleted())) {
+                // 券已删除：台账里的券不再对外展示
+                continue;
+            }
+            UsableCouponVO vo = buildUsableCoupon(couponUser, coupon, goodsAmountCents, now);
+            if (vo != null) {
+                coupons.add(vo);
+            }
+        }
+        coupons.sort(Comparator
+                .<UsableCouponVO, Boolean>comparing(UsableCouponVO::getUsable, Comparator.reverseOrder())
+                .thenComparing(UsableCouponVO::getDiscount, Comparator.reverseOrder())
+                .thenComparing(UsableCouponVO::getEndTime, Comparator.nullsLast(Comparator.naturalOrder())));
+        result.setCoupons(coupons);
+        return result;
+    }
+
+    /**
+     * 构造单张券的试算结果；不满足展示条件的券返回 null（由调用方跳过）。
+     */
+    private UsableCouponVO buildUsableCoupon(CouponUser couponUser, Coupon coupon,
+                                            int goodsAmountCents, LocalDateTime now) {
+        if (coupon.getStatus() == null || coupon.getStatus() != 0) {
+            // 券已停用/已过期：不展示（D-14）
+            return null;
+        }
+        if (couponUser.getStatus() == null || couponUser.getStatus() != 0) {
+            // 已使用/已过期：不展示（D-14）
+            return null;
+        }
+        if (couponUser.getEndTime() != null && now.isAfter(couponUser.getEndTime())) {
+            return null;
+        }
+
+        int discountCents = toCents(coupon.getDiscount());
+        int minCents = toCents(coupon.getMin());
+        String unusableReason = null;
+        if (coupon.getTimeType() != null && coupon.getTimeType() == 1
+                && coupon.getEndTime() != null && now.isAfter(coupon.getEndTime())) {
+            unusableReason = "已过期";
+        } else if (couponUser.getStartTime() != null && now.isBefore(couponUser.getStartTime())) {
+            unusableReason = "未到使用时间";
+        } else if (goodsAmountCents < minCents) {
+            unusableReason = "差 " + centsToYuanText(minCents - goodsAmountCents) + " 元可用";
+        }
+        boolean usable = unusableReason == null;
+
+        UsableCouponVO vo = new UsableCouponVO();
+        vo.setCouponUserId(couponUser.getId());
+        vo.setCouponId(couponUser.getCouponId());
+        vo.setName(coupon.getName());
+        vo.setDiscount(discountCents);
+        vo.setMin(minCents);
+        vo.setEndTime(couponUser.getEndTime() == null ? null : couponUser.getEndTime().format(DT));
+        vo.setUsable(usable);
+        vo.setUnusableReason(unusableReason);
+        vo.setDeductAmount(usable ? Math.min(discountCents, goodsAmountCents) : 0);
+        return vo;
+    }
+
+    /**
+     * 元 → 分（仅接口边界使用，库内仍为 DECIMAL 元）
+     */
+    private int toCents(BigDecimal yuan) {
+        if (yuan == null) {
+            return 0;
+        }
+        return yuan.movePointRight(2).setScale(0, RoundingMode.HALF_UP).intValue();
+    }
+
+    /**
+     * 分 → 元文本（两位小数，用于「差 X 元可用」文案）
+     */
+    private String centsToYuanText(int cents) {
+        return BigDecimal.valueOf(cents).movePointLeft(2).setScale(2, RoundingMode.HALF_UP).toPlainString();
     }
 
     @Override

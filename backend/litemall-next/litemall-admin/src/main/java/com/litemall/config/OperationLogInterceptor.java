@@ -57,6 +57,13 @@ public class OperationLogInterceptor implements HandlerInterceptor {
         log.setAction(method + " " + path);
         log.setStatus(ok ? 1 : 0);
         log.setResult(ok ? "成功" : "失败(" + response.getStatus() + ")");
+        // BR-ADM-03：控制器的业务补充信息（备注 / 操作对象）合并进同一行，避免重复日志
+        OperationLogContext.Extra extra = OperationLogContext.current();
+        if (extra != null) {
+            log.setComment(extra.comment());
+            log.setTargetType(extra.targetType());
+            log.setTargetId(extra.targetId());
+        }
         log.setAddTime(LocalDateTime.now());
         log.setUpdateTime(LocalDateTime.now());
         log.setDeleted(false);

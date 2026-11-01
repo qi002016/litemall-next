@@ -1,6 +1,8 @@
 package com.litemall.service;
 
 import com.baomidou.mybatisplus.spring.service.IService;
+import com.litemall.domain.DTO.GoodsAdminQuery;
+import com.litemall.domain.DTO.GoodsListQuery;
 import com.litemall.domain.PO.Goods;
 import com.litemall.domain.PageVO;
 import com.litemall.domain.VO.GoodsDetailVO;
@@ -18,54 +20,35 @@ import com.litemall.domain.dto.GoodsAdminDTO;
 public interface IGoodsService extends IService<Goods> {
 
     /**
-     * 分页查询商品列表
+     * C 端商品分页列表（08 v4 CI-31）。
+     *
+     * @param query 已归一的查询条件
+     * @return 商品行（含 displayPrice / totalStock / soldOut）
      */
-    PageVO<GoodsVO> getGoodsList(int pageNum, int pageSize, Long categoryId, String keyword, Long brandId);
-
+    PageVO<GoodsVO> getGoodsList(GoodsListQuery query);
 
     /**
-     * 获取商品详情
+     * C 端商品详情（08 v4 CI-32）。
+     *
+     * @param goodsId 商品ID
+     * @return 商品详情（specs / skus / availableStock / canBuy）
      */
     GoodsDetailVO getGoodsDetail(Long goodsId);
 
     /* ==================== H5：管理端商品（admin 服务经 Feign 调用，不再直写 litemall_goods） ==================== */
 
     /**
-     * H5：管理端商品分页列表
+     * 管理端商品分页列表（08 v4 CI-09 / 对内 CI-47）。
      *
-     * @param pageNum  页码
-     * @param pageSize 每页条数
-     * @param name     商品名称模糊匹配，可空
-     * @return 分页商品行（字段与改造前 admin 端返回一致）
+     * @param query 已归一的查询条件
+     * @return 分页商品行
      */
-    PageVO<GoodsAdminDTO> adminListGoods(Integer pageNum, Integer pageSize, String name);
+    PageVO<GoodsAdminDTO> adminListGoods(GoodsAdminQuery query);
 
     /**
-     * H5：管理端商品总数（首页统计）
+     * 管理端商品总数（首页统计）
      *
      * @return 未删除商品数
      */
     long adminCountGoods();
-
-    /**
-     * H5：管理端新建商品（与改造前 admin 端落库字段一致：上架、未删除、写入创建/更新时间）
-     *
-     * @param dto 商品信息
-     * @return 新建商品ID
-     */
-    Long adminCreateGoods(GoodsAdminDTO dto);
-
-    /**
-     * H5：管理端更新商品（仅更新非空字段），并失效商品详情缓存
-     *
-     * @param dto 商品信息（id 必填）
-     */
-    void adminUpdateGoods(GoodsAdminDTO dto);
-
-    /**
-     * H5：管理端逻辑删除商品，并失效商品详情缓存
-     *
-     * @param id 商品ID
-     */
-    void adminDeleteGoods(Long id);
 }

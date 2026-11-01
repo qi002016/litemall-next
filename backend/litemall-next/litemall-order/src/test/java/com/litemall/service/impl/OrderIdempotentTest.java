@@ -5,9 +5,15 @@ import com.litemall.client.MarketingClient;
 import com.litemall.client.UserClient;
 import com.litemall.domain.DTO.OrderSubmitDTO;
 import com.litemall.domain.PO.Cart;
+import com.litemall.domain.VO.OrderSubmitVO;
 import com.litemall.exception.BadRequestException;
+import com.litemall.exception.ConflictException;
+import com.litemall.exception.NotFoundException;
+import com.litemall.mapper.AftersaleMapper;
 import com.litemall.mapper.CartMapper;
 import com.litemall.mapper.OrderGoodsMapper;
+import com.litemall.mapper.OrderLogMapper;
+import com.litemall.mapper.OrderMapper;
 import com.litemall.utils.UserContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,7 +24,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 
@@ -28,20 +36,15 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * P1 验收项「下单幂等」（M4）单元测试。
- * <p>
- * 覆盖两个关键语义：
- * <ol>
- *   <li>token 已被消费（USED）时拒绝重复提交；</li>
- *   <li>下单过程失败时把 token 原子回退为 ROLLED_BACK（可重试），且异常必须继续抛出
- *       —— 否则 {@code @GlobalTransactional} 不会回滚。</li>
- * </ol>
+ * CI-82 下单幂等（P-02 / 07 §2.2）。
+ * <p>三类语义：token 缺失/过期 → 400；同键同参 → 回放首次结果；同键不同参 → 409。</p>
  */
 @ExtendWith(MockitoExtension.class)
 class OrderIdempotentTest {
@@ -51,6 +54,10 @@ class OrderIdempotentTest {
     @Mock
     private OrderGoodsMapper orderGoodsMapper;
     @Mock
+    private AftersaleMapper aftersaleMapper;
+    @Mock
+    private OrderLogMapper orderLogMapper;
+    @Mock
     private GoodsClient goodsClient;
     @Mock
     private UserClient userClient;
@@ -58,13 +65,19 @@ class OrderIdempotentTest {
     private MarketingClient marketingClient;
     @Mock
     private StringRedisTemplate stringRedisTemplate;
+    @Mock
+    private ValueOperations<String, String> valueOperations;
+    @Mock
+    private OrderMapper orderMapper;
 
     private OrderServiceImpl orderService;
 
     @BeforeEach
     void setUp() {
-        orderService = new OrderServiceImpl(cartMapper, orderGoodsMapper, goodsClient,
-                userClient, marketingClient, stringRedisTemplate);
+        orderService = new OrderServiceImpl(cartMapper, orderGoodsMapper, aftersaleMapper, orderLogMapper,
+                goodsClient, userClient, marketingClient, stringRedisTemplate);
+        ReflectionTestUtils.setField(orderService, "baseMapper", orderMapper);
+        ReflectionTestUtils.setField(orderService, "entityClass", com.litemall.domain.PO.Order.class);
         UserContext.setUser(1L);
     }
 
@@ -74,52 +87,65 @@ class OrderIdempotentTest {
     }
 
     @Test
-    @DisplayName("M4/验收：token 已处于 USED 态时再次提交被拒绝")
-    void alreadyUsedToken_rejected() {
-        when(stringRedisTemplate.execute(any(RedisScript.class), anyList())).thenReturn("USED");
-
-        OrderSubmitDTO dto = submitDTO("token-used");
-
-        assertThatThrownBy(() -> orderService.submitOrder(dto))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("请勿重复提交订单");
-
-        // 未进入业务分支：不应发生任何库存扣减
-        verify(goodsClient, never()).deductStockBatch(any());
-    }
-
-    @Test
-    @DisplayName("M4/验收：token 不存在/已过期时被拒绝")
+    @DisplayName("CI-82：token 不存在/已过期 → 400 PARAM_INVALID，不产生任何业务读写")
     void missingToken_rejected() {
         when(stringRedisTemplate.execute(any(RedisScript.class), anyList())).thenReturn("MISSING");
 
-        OrderSubmitDTO dto = submitDTO("token-missing");
-
-        assertThatThrownBy(() -> orderService.submitOrder(dto))
+        assertThatThrownBy(() -> orderService.submitOrder(submitDTO("token-missing")))
                 .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("请勿重复提交订单");
+                .hasMessageContaining("幂等token无效或已过期");
 
         verify(goodsClient, never()).deductStockBatch(any());
+        verify(cartMapper, never()).selectByIds(anyCollection());
     }
 
     @Test
-    @DisplayName("M4/验收：下单失败时 token 回退为 ROLLED_BACK，且异常继续抛出（保证全局事务回滚）")
+    @DisplayName("CI-82：同 idemToken 且参数不同 → 409 IDEMPOTENT_CONFLICT")
+    void sameTokenDifferentParams_conflict() {
+        when(stringRedisTemplate.execute(any(RedisScript.class), anyList())).thenReturn("USED");
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get(anyString())).thenReturn(null);
+
+        assertThatThrownBy(() -> orderService.submitOrder(submitDTO("token-used")))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("幂等token已用于不同参数");
+
+        verify(cartMapper, never()).selectByIds(anyCollection());
+    }
+
+    @Test
+    @DisplayName("CI-82：同 idemToken 且参数相同 → 回放首次下单结果（不重复建单）")
+    void sameTokenSameParams_replay() {
+        OrderSubmitDTO dto = submitDTO("token-replay");
+        String fingerprint = ReflectionTestUtils.invokeMethod(orderService, "fingerprint", dto);
+        when(stringRedisTemplate.execute(any(RedisScript.class), anyList())).thenReturn("USED");
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get(anyString())).thenReturn(fingerprint
+                + "|{\"orderId\":\"88\",\"orderSn\":\"SN88\",\"orderAmount\":1234,"
+                + "\"expireTime\":\"2026-11-01 12:00:00\"}");
+
+        OrderSubmitVO vo = orderService.submitOrder(dto);
+
+        assertThat(vo.getOrderId()).isEqualTo(88L);
+        assertThat(vo.getOrderSn()).isEqualTo("SN88");
+        assertThat(vo.getOrderAmount()).isEqualTo(1234);
+        verify(cartMapper, never()).selectByIds(anyCollection());
+    }
+
+    @Test
+    @DisplayName("CI-82：业务失败时 token 原子回退 ROLLED_BACK，且异常继续抛出（保证全局事务回滚）")
     void submitFailure_rollsBackTokenAndRethrows() {
         when(stringRedisTemplate.execute(any(RedisScript.class), anyList())).thenReturn("OK");
         when(cartMapper.selectByIds(anyCollection())).thenReturn(List.of(validCart()));
-        // 收货地址不存在：在第 3 步失败，属于"业务校验失败"，应回退 token 并抛异常
-        when(userClient.getAddressById(anyLong())).thenReturn(null);
+        when(goodsClient.getProductInfo(anyLong())).thenReturn(null);
 
-        OrderSubmitDTO dto = submitDTO("token-fail");
-
-        assertThatThrownBy(() -> orderService.submitOrder(dto))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("收货地址不存在");
+        assertThatThrownBy(() -> orderService.submitOrder(submitDTO("token-fail")))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("商品规格不存在或已下架");
 
         ArgumentCaptor<RedisScript<?>> captor = ArgumentCaptor.forClass(RedisScript.class);
         verify(stringRedisTemplate, times(2)).execute(captor.capture(), anyList());
         List<RedisScript<?>> scripts = captor.getAllValues();
-        assertThat(scripts).hasSize(2);
         assertThat(scripts.get(0).getScriptAsString()).contains("'INIT'");
         assertThat(scripts.get(1).getScriptAsString()).contains("'ROLLED_BACK'");
     }

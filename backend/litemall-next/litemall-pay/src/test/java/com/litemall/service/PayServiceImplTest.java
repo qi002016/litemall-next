@@ -7,7 +7,10 @@ import com.litemall.domain.VO.PayParamsVO;
 import com.litemall.domain.VO.PayResultVO;
 import com.litemall.domain.VO.RefundVO;
 import com.litemall.domain.dto.OrderPayInfoDTO;
+import com.litemall.domain.dto.PayRefundDTO;
+import com.litemall.domain.dto.PayRefundResultDTO;
 import com.litemall.exception.BadRequestException;
+import com.litemall.exception.CommonException;
 import com.litemall.exception.ForbiddenException;
 import com.litemall.mapper.RefundMapper;
 import com.litemall.service.impl.PayServiceImpl;
@@ -32,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -82,7 +86,9 @@ class PayServiceImplTest {
     void wechatPay_orderNotExist_rejects() {
         when(orderClient.getPayInfo(100L)).thenReturn(null);
 
-        assertThrows(BadRequestException.class, () -> payService.wechatPay(100L));
+        CommonException ex = assertThrows(CommonException.class, () -> payService.wechatPay(100L));
+        assertEquals(404, ex.getCode());
+        assertEquals("ORDER_NOT_FOUND", ex.getErrorCode());
         verify(orderClient).getPayInfo(100L);
     }
 
@@ -102,7 +108,9 @@ class PayServiceImplTest {
         OrderPayInfoDTO info = payInfo(300L, 1L, 102, LocalDateTime.now(), "wx123");
         when(orderClient.getPayInfo(300L)).thenReturn(info);
 
-        assertThrows(BadRequestException.class, () -> payService.wechatPay(300L));
+        // 03 卡 §4.4：CI-103 非 101 为 409 ORDER_ALREADY_PAID / ORDER_PAYABLE
+        CommonException ex = assertThrows(CommonException.class, () -> payService.wechatPay(300L));
+        assertEquals(409, ex.getCode());
     }
 
     @Test
@@ -203,8 +211,10 @@ class PayServiceImplTest {
     void refund_unpaidOrder_rejects() {
         when(orderClient.getPayInfo(600L)).thenReturn(payInfo(600L, 1L, 101, null, null));
 
-        RefundDTO dto = refundDto(600L, "10.00", "不想要了");
-        assertThrows(BadRequestException.class, () -> payService.refund(dto));
+        RefundDTO dto = refundDto(600L, 1000, "不想要了");
+        // 03 卡 §4.4：CI-105 状态类错误为 409 ORDER_STATUS_ILLEGAL（R1-02 公共层再补 errorCode）
+        CommonException ex = assertThrows(CommonException.class, () -> payService.refund(dto));
+        assertEquals(409, ex.getCode());
         verify(refundMapper, never()).insert(any(Refund.class));
     }
 
@@ -213,7 +223,7 @@ class PayServiceImplTest {
     void refund_amountExceeds_rejects() {
         when(orderClient.getPayInfo(700L)).thenReturn(payInfo(700L, 1L, 102, LocalDateTime.now(), "wx7"));
 
-        RefundDTO dto = refundDto(700L, "999.00", "不想要了");
+        RefundDTO dto = refundDto(700L, 99900, "不想要了");
         assertThrows(BadRequestException.class, () -> payService.refund(dto));
         verify(refundMapper, never()).insert(any(Refund.class));
     }
@@ -230,7 +240,7 @@ class PayServiceImplTest {
             return 1;
         }).when(refundMapper).insert(any(Refund.class));
 
-        RefundDTO dto = refundDto(800L, "99.00", "七天无理由");
+        RefundDTO dto = refundDto(800L, 9900, "七天无理由");
         RefundVO vo = payService.refund(dto);
 
         assertEquals(88L, vo.getRefundId());
@@ -238,8 +248,12 @@ class PayServiceImplTest {
         verify(refundMapper).insert(any(Refund.class));
         assertEquals(800L, captured.get().getOrderId());
         assertEquals(1L, captured.get().getUserId());
-        assertEquals(0, captured.get().getStatus());
-        verify(orderClient).markRefunded(800L, new BigDecimal("99.00"));
+        assertEquals(new BigDecimal("99.00"), captured.get().getAmount());
+        // CI-105：资金侧直接置「退款成功」并落 refund_time（CX-06 ①）
+        assertEquals(1, captured.get().getStatus());
+        assertNotNull(captured.get().getRefundTime());
+        // CI-105 收窄后不再回调订单服务（OrderClient.markRefunded 停用）
+        verify(orderClient, never()).markRefunded(anyLong(), any());
     }
 
     @Test
@@ -280,6 +294,148 @@ class PayServiceImplTest {
         assertEquals("refunded", vo.getStatus());
     }
 
+    @Test
+    @DisplayName("CI-103：mode=fail 只影响 payResult，不改订单状态")
+    void wechatPay_modeFail_returnsFail() {
+        when(orderClient.getPayInfo(410L)).thenReturn(payInfo(410L, 1L, 101, null, null));
+
+        PayParamsVO vo = payService.wechatPay(410L, "fail");
+
+        assertEquals(Boolean.TRUE, vo.getDemo());
+        assertEquals("fail", vo.getPayResult());
+        assertEquals("RSA", vo.getSignType());
+        verify(orderClient, never()).markPaid(any());
+    }
+
+    @Test
+    @DisplayName("CI-103：mode 缺省为 success")
+    void wechatPay_modeDefault_success() {
+        when(orderClient.getPayInfo(420L)).thenReturn(payInfo(420L, 1L, 101, null, null));
+
+        PayParamsVO vo = payService.wechatPay(420L, null);
+
+        assertEquals("success", vo.getPayResult());
+        assertEquals(Boolean.TRUE, vo.getDemo());
+    }
+
+    @Test
+    @DisplayName("CI-103：mode 非枚举值 → 400 PARAM_INVALID")
+    void wechatPay_modeInvalid_rejects() {
+        when(orderClient.getPayInfo(430L)).thenReturn(payInfo(430L, 1L, 101, null, null));
+
+        assertThrows(BadRequestException.class, () -> payService.wechatPay(430L, "maybe"));
+    }
+
+    @Test
+    @DisplayName("CI-106：出参带 result / orderStatus / orderStatusText")
+    void queryResult_exposesResultAndStatusText() {
+        LocalDateTime payTime = LocalDateTime.of(2026, 9, 25, 10, 0);
+        when(orderClient.getPayInfo(950L)).thenReturn(payInfo(950L, 1L, 102, payTime, "wx950"));
+        when(orderClient.getPayInfo(960L)).thenReturn(payInfo(960L, 1L, 103, null, null));
+
+        PayResultVO paid = payService.queryResult(950L);
+        PayResultVO closed = payService.queryResult(960L);
+
+        assertEquals("success", paid.getResult());
+        assertEquals(102, paid.getOrderStatus());
+        assertEquals("待发货", paid.getOrderStatusText());
+        assertNull(paid.getExpireTime());
+        // 103 已关闭未支付：status 归 unpaid（不是 paid）、result 仍 pending
+        assertEquals("unpaid", closed.getStatus());
+        assertEquals("pending", closed.getResult());
+        assertEquals("已关闭", closed.getOrderStatusText());
+    }
+
+    @Test
+    @DisplayName("CN-IN-02：首次退款落 refund(status=1 + refund_time + aftersale_id)")
+    void refundFunds_createsSucceededRefund() {
+        when(orderClient.getPayInfo(1000L)).thenReturn(payInfo(1000L, 1L, 102, LocalDateTime.now(), "wx10"));
+        java.util.concurrent.atomic.AtomicReference<Refund> captured = new java.util.concurrent.atomic.AtomicReference<>();
+        doAnswer(inv -> {
+            Refund r = inv.getArgument(0);
+            r.setId(99L);
+            captured.set(r);
+            return 1;
+        }).when(refundMapper).insert(any(Refund.class));
+
+        PayRefundDTO dto = payRefundDto(5001L, 1000L, 8800, "退货退款");
+        PayRefundResultDTO result = payService.refundFunds(dto);
+
+        assertEquals(99L, result.getRefundId());
+        assertEquals(1, result.getStatus());
+        assertEquals("退款成功", result.getStatusText());
+        assertNotNull(result.getRefundTime());
+        assertEquals(5001L, captured.get().getAftersaleId());
+        assertEquals(1000L, captured.get().getOrderId());
+        assertEquals(new BigDecimal("88.00"), captured.get().getAmount());
+        assertEquals(1, captured.get().getStatus());
+        assertNotNull(captured.get().getRefundTime());
+        // DR-17：CN-IN-02 不回调订单服务
+        verify(orderClient, never()).markRefunded(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("CN-IN-02：同 aftersaleId 重复调用返回同一 refundId 且不重复写库")
+    void refundFunds_idempotent_returnsSame() {
+        when(orderClient.getPayInfo(1001L)).thenReturn(payInfo(1001L, 1L, 102, null, "wx11"));
+        Refund existed = new Refund()
+                .setId(77L)
+                .setAftersaleId(5002L)
+                .setOrderId(1001L)
+                .setAmount(new BigDecimal("10.00"))
+                .setStatus(1)
+                .setRefundTime(LocalDateTime.of(2026, 10, 1, 9, 0))
+                .setDeleted(false);
+        when(refundMapper.selectList(any())).thenReturn(java.util.List.of(existed));
+
+        PayRefundResultDTO result = payService.refundFunds(payRefundDto(5002L, 1001L, 1000, "退货退款"));
+
+        assertEquals(77L, result.getRefundId());
+        assertEquals("2026-10-01 09:00:00", result.getRefundTime());
+        verify(refundMapper, never()).insert(any(Refund.class));
+    }
+
+    @Test
+    @DisplayName("CN-IN-02：同 aftersaleId 已有非成功行且金额不同 → 409 IDEMPOTENT_CONFLICT")
+    void refundFunds_idempotentConflict() {
+        when(orderClient.getPayInfo(1002L)).thenReturn(payInfo(1002L, 1L, 102, null, "wx12"));
+        Refund pending = new Refund()
+                .setId(78L)
+                .setAftersaleId(5003L)
+                .setOrderId(1002L)
+                .setAmount(new BigDecimal("20.00"))
+                .setStatus(0)
+                .setDeleted(false);
+        when(refundMapper.selectList(any())).thenReturn(java.util.List.of(pending));
+
+        CommonException ex = assertThrows(CommonException.class,
+                () -> payService.refundFunds(payRefundDto(5003L, 1002L, 1000, "退货退款")));
+
+        assertEquals(409, ex.getCode());
+        verify(refundMapper, never()).insert(any(Refund.class));
+    }
+
+    @Test
+    @DisplayName("CN-IN-02：订单不存在 → 404")
+    void refundFunds_orderNotExist() {
+        when(orderClient.getPayInfo(1003L)).thenReturn(null);
+
+        CommonException ex = assertThrows(CommonException.class,
+                () -> payService.refundFunds(payRefundDto(5004L, 1003L, 1000, "退货退款")));
+
+        assertEquals(404, ex.getCode());
+    }
+
+    @Test
+    @DisplayName("CN-IN-02：金额≤0 或缺 aftersaleId → 400")
+    void refundFunds_paramInvalid() {
+        assertThrows(BadRequestException.class,
+                () -> payService.refundFunds(payRefundDto(null, 1004L, 1000, "退货退款")));
+        assertThrows(BadRequestException.class,
+                () -> payService.refundFunds(payRefundDto(5005L, 1004L, 0, "退货退款")));
+        verify(refundMapper, never()).insert(any(Refund.class));
+    }
+
     private OrderPayInfoDTO payInfo(long orderId, long userId, int status,
                                     LocalDateTime payTime, String payId) {
         OrderPayInfoDTO info = new OrderPayInfoDTO();
@@ -292,10 +448,22 @@ class PayServiceImplTest {
         return info;
     }
 
-    private RefundDTO refundDto(long orderId, String amount, String reason) {
+    /**
+     * CI-105 金额口径为整数分（P-27），helper 直接传分
+     */
+    private PayRefundDTO payRefundDto(Long aftersaleId, Long orderId, int amountCents, String reason) {
+        PayRefundDTO dto = new PayRefundDTO();
+        dto.setAftersaleId(aftersaleId);
+        dto.setOrderId(orderId);
+        dto.setAmount(amountCents);
+        dto.setReason(reason);
+        return dto;
+    }
+
+    private RefundDTO refundDto(long orderId, int amountCents, String reason) {
         RefundDTO dto = new RefundDTO();
         dto.setOrderId(orderId);
-        dto.setAmount(new BigDecimal(amount));
+        dto.setAmount(amountCents);
         dto.setReason(reason);
         return dto;
     }

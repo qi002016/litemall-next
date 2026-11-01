@@ -1,8 +1,8 @@
 package com.litemall.controller;
 
 import com.litemall.domain.PO.GoodsProduct;
+import com.litemall.domain.dto.DeductBatchResultDTO;
 import com.litemall.domain.dto.StockChangeDTO;
-import com.litemall.exception.BadRequestException;
 import com.litemall.mapper.GoodsProductMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,13 +14,20 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * P1 验收项「库存不足回滚」（M2）集成测试。
+ *
  * <p>
  * 用真实 MySQL 验证批量扣减的事务边界：任一货品库存不足时必须整批回滚，
  * 不能出现"前面的货品已扣、后面的失败"的部分扣减。测试数据为临时插入行，结束即物理删除。
+ * </p>
+ *
+ * <p>
+ * R1 契约变更（03 §4.7 D-24 / P-31）：库存不足不再抛 400，而是返回
+ * {@code DeductBatchResultDTO{deducted:false, items[].shortage}}，HTTP 200。
+ * 本测试据此断言返回值 + 数据库未被改动。
+ * </p>
  */
 @SpringBootTest
 class StockDeductBatchTest {
@@ -47,17 +54,23 @@ class StockDeductBatchTest {
     private GoodsProductMapper goodsProductMapper;
 
     @Test
-    @DisplayName("验收：批量扣减中任一货品库存不足 → 整批回滚，不出现部分扣减")
+    @DisplayName("验收：批量扣减中任一货品库存不足 → 整批回滚 + deducted=false + shortage")
     void insufficientStock_rollsBackWholeBatch() {
         GoodsProduct enough = insertProduct(10);
         GoodsProduct scarce = insertProduct(1);
         try {
             StockChangeDTO dto = change(item(enough.getId(), 5), item(scarce.getId(), 5));
 
-            assertThatThrownBy(() -> goodsInnerController.deductStockBatch(dto))
-                    .isInstanceOf(BadRequestException.class)
-                    .hasMessageContaining("库存不足");
+            DeductBatchResultDTO result = goodsInnerController.deductStockBatch(dto);
 
+            // 契约：HTTP 200 + deducted=false，不抛异常（order 侧据此把订单留在 101）
+            assertThat(result.isDeducted()).isFalse();
+            assertThat(result.getItems()).hasSize(2);
+            assertThat(result.getItems()).allMatch(i -> !i.isDeducted());
+            // 缺口 = 需要 5 − 现有 1
+            assertThat(result.getItems().stream()
+                    .filter(i -> i.getProductId().equals(scarce.getId()))
+                    .findFirst().orElseThrow().getShortage()).isEqualTo(4);
             // 关键断言：第一个货品虽然扣减成功过，但必须随事务回滚
             assertThat(goodsProductMapper.selectById(enough.getId()).getNumber()).isEqualTo(10);
             assertThat(goodsProductMapper.selectById(scarce.getId()).getNumber()).isEqualTo(1);
@@ -75,8 +88,10 @@ class StockDeductBatchTest {
         try {
             StockChangeDTO dto = change(item(first.getId(), 3), item(second.getId(), 8));
 
-            goodsInnerController.deductStockBatch(dto);
+            DeductBatchResultDTO result = goodsInnerController.deductStockBatch(dto);
 
+            assertThat(result.isDeducted()).isTrue();
+            assertThat(result.getItems()).allMatch(DeductBatchResultDTO.Item::isDeducted);
             assertThat(goodsProductMapper.selectById(first.getId()).getNumber()).isEqualTo(7);
             assertThat(goodsProductMapper.selectById(second.getId()).getNumber()).isZero();
         } finally {

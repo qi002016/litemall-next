@@ -11,6 +11,7 @@ import com.litemall.domain.DTO.OrderConfirmDTO;
 import com.litemall.domain.PO.Cart;
 import com.litemall.domain.VO.CartItemVO;
 import com.litemall.domain.VO.OrderConfirmVO;
+import com.litemall.support.Money;
 import com.litemall.domain.dto.CouponCheckDTO;
 import com.litemall.domain.dto.GoodsProductInfoDTO;
 import com.litemall.exception.BadRequestException;
@@ -23,6 +24,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -164,6 +166,12 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
         }
     }
 
+    /**
+     * @deprecated CI-80（订单确认页试算）已迁到 {@code IOrderService#confirmOrder}：
+     * 新版按行返回 {@code lines[]}（含 couponShare/actualAmount/availableStock），且支持 buyNow。
+     * 本方法仅为兼容旧调用点保留，R2 删除。
+     */
+    @Deprecated(since = "R1")
     @Override
     public OrderConfirmVO confirmOrder(OrderConfirmDTO dto) {
         Long userId = UserContext.getUser();
@@ -208,10 +216,11 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
         }
 
         OrderConfirmVO vo = new OrderConfirmVO();
-        vo.setGoodsAmount(goodsAmount);
-        vo.setFreightAmount(freight);
-        vo.setCouponAmount(coupon);
-        vo.setOrderAmount(orderAmount);
+        vo.setGoodsAmount(Money.fen(goodsAmount));
+        vo.setFreightAmount(Money.fen(freight));
+        vo.setCouponAmount(Money.fen(coupon));
+        vo.setOrderAmount(Money.fen(orderAmount));
+        vo.setLines(Collections.emptyList());
         return vo;
     }
 

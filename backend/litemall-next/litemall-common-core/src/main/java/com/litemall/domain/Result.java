@@ -3,6 +3,8 @@ package com.litemall.domain;
 import com.litemall.exception.CommonException;
 import lombok.Data;
 
+import java.util.Map;
+
 
 @Data
 public class Result<T> {
@@ -26,8 +28,14 @@ public class Result<T> {
         return new Result<>(code, msg, null);
     }
 
+    /**
+     * R1（03 §4.1）：失败响应 {@code data} 只允许 null 或严格 {@code {"errorCode":"XXX"}}，
+     * 禁止附加其它键，也禁止把 errorCode 提升为顶层字段。
+     */
+    @SuppressWarnings("unchecked")
     public static <T> Result<T> error(CommonException e) {
-        return new Result<>(e.getCode(), e.getMessage(), null);
+        T data = e.getErrorCode() == null ? null : (T) Map.of("errorCode", e.getErrorCode());
+        return new Result<>(e.getCode(), e.getMessage(), data);
     }
 
     public Result() {

@@ -29,4 +29,16 @@ public class PayParamsVO {
 
     @Schema(description = "签名")
     private String paySign;
+
+    /**
+     * CI-103 新增：R1 为演示支付，恒为 true
+     */
+    @Schema(description = "是否演示支付，R1 恒为 true")
+    private Boolean demo;
+
+    /**
+     * CI-103 新增：演示支付结果 success / fail
+     */
+    @Schema(description = "演示支付结果：success / fail")
+    private String payResult;
 }

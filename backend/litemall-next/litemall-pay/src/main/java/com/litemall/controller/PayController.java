@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * <p>
- * 支付服务接口
+ * 支付接口
  * </p>
  *
  * @author qihuang
@@ -29,39 +29,49 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/app/pay")
-@RequiredArgsConstructor
 @Tag(name = "pay", description = "支付相关接口")
+@RequiredArgsConstructor
 public class PayController {
 
     private final IPayService payService;
 
-    @Operation(summary = "微信支付下单（模拟）")
+    /**
+     * CI-103：微信支付下单（演示支付，可选成功/失败）
+     */
     @PostMapping("/wechat")
+    @Operation(summary = "微信支付下单（演示）")
     public Result<PayParamsVO> wechat(@RequestBody @Valid PayWechatDTO dto) {
-        return Result.ok(payService.wechatPay(dto.getOrderId()));
+        return Result.ok(payService.wechatPay(dto.getOrderId(), dto.getMode()));
     }
 
-    @Operation(summary = "微信支付回调（白名单：免登录但必须验签）")
+    /**
+     * CI-104：微信支付回调（验签失败 → 400 PARAM_INVALID，不返回 401）
+     */
     @PostMapping("/notify/wechat")
-    public Result<Void> notifyWechat(
-            @RequestBody String rawBody,
-            @RequestHeader(value = "Wechatpay-Serial", required = false) String serial,
-            @RequestHeader(value = "Wechatpay-Timestamp", required = false) String timestamp,
-            @RequestHeader(value = "Wechatpay-Nonce", required = false) String nonce,
-            @RequestHeader(value = "Wechatpay-Signature", required = false) String signature) {
-        // H2：不再直接信任回调体，先经 PayNotifyVerifier 验签（生产为微信平台证书验签）
+    @Operation(summary = "微信支付回调")
+    public Result<Void> notifyWechat(@RequestHeader(value = "Wechatpay-Serial", required = false) String serial,
+                                     @RequestHeader(value = "Wechatpay-Timestamp", required = false) String timestamp,
+                                     @RequestHeader(value = "Wechatpay-Nonce", required = false) String nonce,
+                                     @RequestHeader(value = "Wechatpay-Signature", required = false) String signature,
+                                     @RequestBody String rawBody) {
         payService.notifyWechat(serial, timestamp, nonce, signature, rawBody);
-        return Result.ok(null);
+        return Result.ok();
     }
 
-    @Operation(summary = "申请退款")
+    /**
+     * CI-105：申请退款（保留，仅演示直付单可用；R1 售后退款一律走 CN-07）
+     */
     @PostMapping("/refund")
+    @Operation(summary = "申请退款（演示直付单）")
     public Result<RefundVO> refund(@RequestBody @Valid RefundDTO dto) {
         return Result.ok(payService.refund(dto));
     }
 
-    @Operation(summary = "查询支付结果")
+    /**
+     * CI-106：查询支付结果
+     */
     @GetMapping("/result")
+    @Operation(summary = "查询支付结果")
     public Result<PayResultVO> result(@RequestParam("orderId") Long orderId) {
         return Result.ok(payService.queryResult(orderId));
     }

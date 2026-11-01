@@ -1,16 +1,28 @@
 package com.litemall.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.litemall.client.GoodsClient;
 import com.litemall.client.MarketingClient;
 import com.litemall.client.UserClient;
+import com.litemall.domain.PO.Aftersale;
 import com.litemall.domain.PO.Order;
 import com.litemall.domain.PO.OrderGoods;
-import com.litemall.domain.dto.OrderRefundDTO;
+import com.litemall.domain.PO.OrderLog;
+import com.litemall.constant.AftersaleStatus;
+import com.litemall.constant.OrderStatus;
+import com.litemall.domain.dto.CloseExpiredResultDTO;
+import com.litemall.domain.dto.OrderAdminDetailDTO;
+import com.litemall.domain.dto.OrderCloseDTO;
 import com.litemall.domain.dto.OrderShipDTO;
-import com.litemall.domain.dto.StockChangeDTO;
 import com.litemall.exception.BadRequestException;
+import com.litemall.exception.ConflictException;
+import com.litemall.exception.NotFoundException;
+import com.litemall.mapper.AftersaleMapper;
 import com.litemall.mapper.CartMapper;
 import com.litemall.mapper.OrderGoodsMapper;
+import com.litemall.mapper.OrderLogMapper;
 import com.litemall.mapper.OrderMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -23,37 +35,23 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * H5：管理端订单状态机单元测试。
- * <p>
- * 覆盖 admin 侧发货/退款经由 order 服务后的状态校验：
- * <ul>
- *   <li>非法流转被拒：未付款订单发货、已取消订单退款、未付款订单退款、已退款完成再退款；</li>
- *   <li>合法流转成功：102 待发货 → 201 已发货；102 待发货 → 401 售后，
- *       且复用既有的批量库存回补与优惠券回退；</li>
- *   <li>401 幂等：重复退款不重复补偿库存。</li>
- * </ul>
- * 说明：{@code OrderServiceImpl} 继承 MyBatis-Plus 的 {@code ServiceImpl}，
- * 其 {@code baseMapper} / {@code entityClass} 由 Spring 注入，这里用 {@link ReflectionTestUtils} 手工补上。
+ * 管理端订单状态机（CI-27 发货 / CN-10 关单 / CN-11 超时关单 / CN-12 改物流）。
+ * <p>全部走 CAS：{@code lambdaUpdate().eq(status).update()}，affected=0 → 409（03 §5.6）。</p>
  */
 @ExtendWith(MockitoExtension.class)
 class OrderAdminStateMachineTest {
-
-    private static final int STATUS_UNPAID = 101;
-    private static final int STATUS_UNDELIVERED = 102;
-    private static final int STATUS_CANCELED = 103;
-    private static final int STATUS_SHIPPED = 201;
-    private static final int STATUS_REFUND = 401;
-    private static final int STATUS_REFUND_DONE = 402;
 
     @Mock
     private OrderMapper orderMapper;
@@ -61,6 +59,10 @@ class OrderAdminStateMachineTest {
     private CartMapper cartMapper;
     @Mock
     private OrderGoodsMapper orderGoodsMapper;
+    @Mock
+    private AftersaleMapper aftersaleMapper;
+    @Mock
+    private OrderLogMapper orderLogMapper;
     @Mock
     private GoodsClient goodsClient;
     @Mock
@@ -74,157 +76,318 @@ class OrderAdminStateMachineTest {
 
     @BeforeEach
     void setUp() {
-        orderService = new OrderServiceImpl(cartMapper, orderGoodsMapper, goodsClient,
-                userClient, marketingClient, stringRedisTemplate);
+        orderService = new OrderServiceImpl(cartMapper, orderGoodsMapper, aftersaleMapper, orderLogMapper,
+                goodsClient, userClient, marketingClient, stringRedisTemplate);
         ReflectionTestUtils.setField(orderService, "baseMapper", orderMapper);
         ReflectionTestUtils.setField(orderService, "entityClass", Order.class);
     }
 
-    /* ==================== 发货 ==================== */
+    /* ==================== CN-33 订单详情行级售后摘要 ==================== */
 
     @Test
-    @DisplayName("H5/状态机：未付款订单发货被拒，且不产生任何订单写入")
-    void shipUnpaidOrder_rejected() {
-        when(orderMapper.selectById(1L)).thenReturn(order(1, STATUS_UNPAID));
+    @DisplayName("CN-33：行级 aftersaleId/aftersaleStatus 取该行未完结售后，status 出字符串标识")
+    void detail_lineAftersaleSummary_ident() {
+        Order order = new Order();
+        order.setId(25L);
+        order.setOrderSn("SN25");
+        order.setUserId(1L);
+        order.setOrderStatus(OrderStatus.UNDELIVERED);
+        order.setGoodsPrice(new BigDecimal("59.90"));
+        order.setFreightPrice(BigDecimal.ZERO);
+        order.setCouponPrice(BigDecimal.ZERO);
+        order.setOrderPrice(new BigDecimal("59.90"));
+        order.setActualPrice(new BigDecimal("59.90"));
+        order.setDeleted(false);
+        when(orderMapper.selectOne(any())).thenReturn(order);
+
+        OrderGoods og = new OrderGoods();
+        og.setId(26L);
+        og.setOrderId(25L);
+        og.setNumber(1);
+        og.setRefundedNumber(0);
+        og.setRefundStatus(0);
+        og.setDeleted(false);
+        when(orderGoodsMapper.selectList(any())).thenReturn(List.of(og));
+
+        Aftersale a = new Aftersale();
+        a.setId(2L);
+        a.setOrderId(25L);
+        a.setOrderGoodsId(26L);
+        a.setStatus(AftersaleStatus.APPLIED);
+        a.setType(AftersaleStatus.TYPE_REFUND_ONLY);
+        a.setDeleted(false);
+        when(aftersaleMapper.selectList(any())).thenReturn(List.of(a));
+        when(orderLogMapper.selectCount(any())).thenReturn(0L);
+
+        OrderAdminDetailDTO dto = orderService.adminOrderDetail(25L);
+
+        OrderAdminDetailDTO.Line line = dto.getLines().get(0);
+        assertThat(line.getAftersaleId()).isEqualTo(2L);
+        assertThat(line.getAftersaleStatus()).isEqualTo("applied");
+        assertThat(line.getAftersaleStatusText()).isEqualTo("申请中");
+    }
+
+    /* ==================== CI-27 发货 ==================== */
+
+    @Test
+    @DisplayName("CI-27：未付款订单发货 → CAS(102) 不命中 → 409，且不留发货日志")
+    void shipUnpaidOrder_conflict() {
+        when(orderMapper.selectOne(any())).thenReturn(order(1L, 101));
+        stubCas(0);
 
         assertThatThrownBy(() -> orderService.adminShip(shipDTO(1L)))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("仅待发货订单可发货");
-
-        verify(orderMapper, never()).updateById(any(Order.class));
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("只有待发货订单可以发货");
+        verify(orderLogMapper, never()).insert(any(OrderLog.class));
     }
 
     @Test
-    @DisplayName("H5/状态机：已取消订单发货被拒")
-    void shipCanceledOrder_rejected() {
-        when(orderMapper.selectById(2L)).thenReturn(order(2, STATUS_CANCELED));
+    @DisplayName("CI-27：已关闭订单发货 → 409（BR-ORD-06）")
+    void shipCanceledOrder_conflict() {
+        when(orderMapper.selectOne(any())).thenReturn(order(2L, 103));
+        stubCas(0);
 
         assertThatThrownBy(() -> orderService.adminShip(shipDTO(2L)))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("仅待发货订单可发货");
-
-        verify(orderMapper, never()).updateById(any(Order.class));
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("只有待发货订单可以发货");
     }
 
     @Test
-    @DisplayName("H5/状态机：102 待发货 → 201 已发货，并写入快递信息与发货时间")
+    @DisplayName("CI-27：102 待发货 → 201 已发货，CAS 写入快递信息与发货时间")
     void shipUndeliveredOrder_success() {
-        when(orderMapper.selectById(3L)).thenReturn(order(3, STATUS_UNDELIVERED));
+        when(orderMapper.selectOne(any())).thenReturn(order(3L, 102));
+        stubCas(1);
 
-        OrderShipDTO dto = shipDTO(3L);
-        dto.setShipChannel("SF");
-        dto.setShipSn("SF123456");
-        orderService.adminShip(dto);
+        orderService.adminShip(shipDTO(3L));
 
-        ArgumentCaptor<Order> captor = ArgumentCaptor.forClass(Order.class);
-        verify(orderMapper).updateById(captor.capture());
-        Order updated = captor.getValue();
-        assertThat(updated.getOrderStatus()).isEqualTo(STATUS_SHIPPED);
-        assertThat(updated.getShipChannel()).isEqualTo("SF");
-        assertThat(updated.getShipSn()).isEqualTo("SF123456");
-        assertThat(updated.getShipTime()).isNotNull();
+        LambdaUpdateWrapper<Order> wrapper = captureCasWrapper();
+        assertThat(wrapper.getParamNameValuePairs().values())
+                .contains(201, "SF", "SF123456");
     }
 
-    /* ==================== 退款 ==================== */
+    @Test
+    @DisplayName("CI-27：并发已被改状态（CAS affected=0）→ 409，不静默成功")
+    void shipCasMissed_conflict() {
+        when(orderMapper.selectOne(any())).thenReturn(order(4L, 102));
+        stubCas(0);
+
+        assertThatThrownBy(() -> orderService.adminShip(shipDTO(4L)))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("只有待发货订单可以发货");
+    }
 
     @Test
-    @DisplayName("H5/状态机：未付款订单退款被拒（应走取消订单）")
-    void refundUnpaidOrder_rejected() {
-        when(orderMapper.selectById(11L)).thenReturn(order(11, STATUS_UNPAID));
+    @DisplayName("CI-27：快递公司/单号为空 → 400（P-18 服务内校验）")
+    void shipBlankFields_rejected() {
+        when(orderMapper.selectOne(any())).thenReturn(order(5L, 102));
 
-        assertThatThrownBy(() -> orderService.adminRefund(refundDTO(11L)))
+        OrderShipDTO dto = shipDTO(5L);
+        dto.setShipChannel("  ");
+        dto.setShipSn("SF1");
+
+        assertThatThrownBy(() -> orderService.adminShip(dto))
                 .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("未付款订单无需退款");
-
-        verify(goodsClient, never()).releaseStockBatch(any());
-        verify(marketingClient, never()).rollbackCoupon(any());
+                .hasMessageContaining("快递公司不能为空");
     }
 
-    @Test
-    @DisplayName("H5/状态机：已取消订单退款被拒，且不回补库存/不回退券")
-    void refundCanceledOrder_rejected() {
-        when(orderMapper.selectById(12L)).thenReturn(order(12, STATUS_CANCELED));
-
-        assertThatThrownBy(() -> orderService.adminRefund(refundDTO(12L)))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("订单已取消，不可退款");
-
-        verify(goodsClient, never()).releaseStockBatch(any());
-        verify(marketingClient, never()).rollbackCoupon(any());
-        verify(orderMapper, never()).updateById(any(Order.class));
-    }
+    /* ==================== CN-10 运营关单 ==================== */
 
     @Test
-    @DisplayName("H5/状态机：已退款完成（402）重复退款被拒")
-    void refundDoneOrder_rejected() {
-        when(orderMapper.selectById(13L)).thenReturn(order(13, STATUS_REFUND_DONE));
+    @DisplayName("CN-10：101 → 103，写 close_type=3 + end_time，并留痕 + 回退优惠券")
+    void adminCloseUnpaid_success() {
+        Order order = order(11L, 101);
+        order.setCouponPrice(new BigDecimal("5.00"));
+        when(orderMapper.selectOne(any())).thenReturn(order);
+        stubCas(1);
 
-        assertThatThrownBy(() -> orderService.adminRefund(refundDTO(13L)))
-                .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("订单已退款完成");
-    }
+        OrderCloseDTO dto = new OrderCloseDTO();
+        dto.setOrderId(11L);
+        dto.setReason("运营核实为恶意占单");
+        dto.setAdminId(9001L);
+        orderService.adminClose(dto);
 
-    @Test
-    @DisplayName("H5/状态机：102 待发货 → 401 售后，并复用批量库存回补 + 优惠券回退")
-    void refundUndeliveredOrder_compensatesStockAndCoupon() {
-        Order order = order(14, STATUS_UNDELIVERED);
-        order.setActualPrice(new BigDecimal("88.00"));
-        when(orderMapper.selectById(14L)).thenReturn(order);
-        when(orderGoodsMapper.selectList(any())).thenReturn(List.of(
-                new OrderGoods().setOrderId(14L).setProductId(1001L).setNumber(2),
-                new OrderGoods().setOrderId(14L).setProductId(1002L).setNumber(1)));
-
-        OrderRefundDTO dto = refundDTO(14L);
-        dto.setRefundAmount(new BigDecimal("88.00"));
-        dto.setRefundContent("管理端协商退款");
-        orderService.adminRefund(dto);
-
-        // 库存回补：一次批量 RPC，明细与订单商品一致
-        ArgumentCaptor<StockChangeDTO> stockCaptor = ArgumentCaptor.forClass(StockChangeDTO.class);
-        verify(goodsClient).releaseStockBatch(stockCaptor.capture());
-        List<StockChangeDTO.Item> items = stockCaptor.getValue().getItems();
-        assertThat(items).hasSize(2);
-        assertThat(items.get(0).getProductId()).isEqualTo(1001L);
-        assertThat(items.get(0).getNumber()).isEqualTo(2);
-        assertThat(items.get(1).getProductId()).isEqualTo(1002L);
-
-        // 优惠券回退：与取消订单同一调用形态（仅传 orderId，由 marketing 服务反查）
+        LambdaUpdateWrapper<Order> wrapper = captureCasWrapper();
+        assertThat(wrapper.getParamNameValuePairs().values()).contains(103, 3);
+        // 未支付过：只回退券，不回补库存
         verify(marketingClient).rollbackCoupon(any());
-
-        ArgumentCaptor<Order> orderCaptor = ArgumentCaptor.forClass(Order.class);
-        verify(orderMapper).updateById(orderCaptor.capture());
-        Order updated = orderCaptor.getValue();
-        assertThat(updated.getOrderStatus()).isEqualTo(STATUS_REFUND);
-        assertThat(updated.getRefundAmount()).isEqualByComparingTo("88.00");
-        assertThat(updated.getRefundType()).isEqualTo("admin");
-        assertThat(updated.getRefundTime()).isNotNull();
-    }
-
-    @Test
-    @DisplayName("H5/状态机：401 售后中重复退款为幂等（不再写库、不再补偿）")
-    void refundRefundingOrder_isIdempotent() {
-        when(orderMapper.selectById(15L)).thenReturn(order(15, STATUS_REFUND));
-
-        orderService.adminRefund(refundDTO(15L));
-
-        verify(orderMapper, never()).updateById(any(Order.class));
         verify(goodsClient, never()).releaseStockBatch(any());
-        verify(marketingClient, never()).rollbackCoupon(any());
+        // 留痕：admin 列存 adminId 字符串
+        ArgumentCaptor<OrderLog> logCaptor = ArgumentCaptor.forClass(OrderLog.class);
+        verify(orderLogMapper).insert(logCaptor.capture());
+        assertThat(logCaptor.getValue().getAction()).isEqualTo("order:close");
+        assertThat(logCaptor.getValue().getAdmin()).isEqualTo("9001");
+        assertThat(logCaptor.getValue().getTargetId()).isEqualTo(11L);
     }
 
     @Test
-    @DisplayName("H5/状态机：订单不存在时拒绝")
-    void refundMissingOrder_rejected() {
-        when(orderMapper.selectById(16L)).thenReturn(null);
+    @DisplayName("CN-10：非未付款订单关单 → 409「该订单当前状态不可关闭」")
+    void adminCloseNonUnpaid_conflict() {
+        when(orderMapper.selectOne(any())).thenReturn(order(12L, 102));
+        stubCas(0);
 
-        assertThatThrownBy(() -> orderService.adminRefund(refundDTO(16L)))
+        OrderCloseDTO dto = new OrderCloseDTO();
+        dto.setOrderId(12L);
+
+        assertThatThrownBy(() -> orderService.adminClose(dto))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("该订单当前状态不可关闭");
+        verify(marketingClient, never()).rollbackCoupon(any());
+        verify(orderLogMapper, never()).insert(any(OrderLog.class));
+    }
+
+    @Test
+    @DisplayName("CN-10：关单原因超过 255 字 → 400")
+    void adminCloseReasonTooLong_rejected() {
+        when(orderMapper.selectOne(any())).thenReturn(order(13L, 101));
+        OrderCloseDTO dto = new OrderCloseDTO();
+        dto.setOrderId(13L);
+        dto.setReason("x".repeat(256));
+
+        assertThatThrownBy(() -> orderService.adminClose(dto))
                 .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("关单原因不能超过 255 字");
+    }
+
+    @Test
+    @DisplayName("CN-10：订单不存在 → 404 ORDER_NOT_FOUND")
+    void adminCloseMissingOrder_notFound() {
+        when(orderMapper.selectOne(any())).thenReturn(null);
+        OrderCloseDTO dto = new OrderCloseDTO();
+        dto.setOrderId(14L);
+
+        assertThatThrownBy(() -> orderService.adminClose(dto))
+                .isInstanceOf(NotFoundException.class)
                 .hasMessageContaining("订单不存在");
     }
 
-    /* ==================== 辅助方法 ==================== */
+    /* ==================== CN-11 超时关单 ==================== */
 
-    private Order order(long id, int status) {
+    @Test
+    @DisplayName("CN-11：limit 越界 → 400")
+    void closeExpiredLimitInvalid_rejected() {
+        assertThatThrownBy(() -> orderService.adminCloseExpired(0, false))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("limit 取值范围 1–200");
+        assertThatThrownBy(() -> orderService.adminCloseExpired(201, false))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("limit 取值范围 1–200");
+    }
+
+    @Test
+    @DisplayName("CN-11：无超时订单 → total=0，不 404")
+    void closeExpiredNoCandidate_empty() {
+        when(orderMapper.selectList(any())).thenReturn(List.of());
+
+        CloseExpiredResultDTO result = orderService.adminCloseExpired(100, false);
+
+        assertThat(result.getTotal()).isZero();
+        assertThat(result.getSucceeded()).isZero();
+        assertThat(result.getFailed()).isZero();
+        assertThat(result.getItems()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("CN-11：dryRun 只统计不落库")
+    void closeExpiredDryRun_noWrite() {
+        when(orderMapper.selectList(any())).thenReturn(List.of(expired(21L), expired(22L)));
+
+        CloseExpiredResultDTO result = orderService.adminCloseExpired(100, true);
+
+        assertThat(result.getTotal()).isEqualTo(2);
+        assertThat(result.getSucceeded()).isEqualTo(2);
+        verify(orderMapper, never()).update(any(), any());
+        verify(marketingClient, never()).rollbackCoupon(any());
+    }
+
+    @Test
+    @DisplayName("CN-11：逐单 CAS 成功/并发失败分别计入 succeeded / failed")
+    void closeExpiredMixedResults() {
+        when(orderMapper.selectList(any())).thenReturn(List.of(expired(31L), expired(32L)));
+        when(orderMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(1, 0);
+
+        CloseExpiredResultDTO result = orderService.adminCloseExpired(100, false);
+
+        assertThat(result.getTotal()).isEqualTo(2);
+        assertThat(result.getSucceeded()).isEqualTo(1);
+        assertThat(result.getFailed()).isEqualTo(1);
+        assertThat(result.getItems()).anySatisfy(i -> {
+            assertThat(i.getId()).isEqualTo(32L);
+            assertThat(i.isOk()).isFalse();
+            assertThat(i.getReason()).contains("状态已变更");
+        });
+        // 关单写 close_type=2（超时）
+        ArgumentCaptor<Wrapper> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(orderMapper, org.mockito.Mockito.times(2)).update(isNull(), captor.capture());
+        assertThat(((LambdaUpdateWrapper<?>) captor.getAllValues().get(0)).getParamNameValuePairs().values())
+                .contains(103, 2);
+    }
+
+    @Test
+    @DisplayName("CN-11：limit 默认 100，超出部分不处理")
+    void closeExpiredDefaultLimit() {
+        when(orderMapper.selectList(any())).thenReturn(List.of(expired(41L)));
+
+        CloseExpiredResultDTO result = orderService.adminCloseExpired(null, true);
+
+        assertThat(result.getTotal()).isEqualTo(1);
+    }
+
+    /* ==================== CN-12 修改物流 ==================== */
+
+    @Test
+    @DisplayName("CN-12：非已发货订单 → 409")
+    void updateShipWrongStatus_conflict() {
+        when(orderMapper.selectOne(any())).thenReturn(order(51L, 102));
+
+        assertThatThrownBy(() -> orderService.adminUpdateShip(updateShipDTO(51L)))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("只有已发货订单可以修改物流单号");
+    }
+
+    @Test
+    @DisplayName("CN-12：已改过一次（日志计数=1）→ 409 不能再次修改")
+    void updateShipAlreadyUpdated_conflict() {
+        when(orderMapper.selectOne(any())).thenReturn(order(52L, 201));
+        when(orderLogMapper.selectCount(any())).thenReturn(1L);
+
+        assertThatThrownBy(() -> orderService.adminUpdateShip(updateShipDTO(52L)))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("物流单号已修改过，不能再次修改");
+    }
+
+    @Test
+    @DisplayName("CN-12：首次修改成功，并写「旧 → 新」日志")
+    void updateShipFirstTime_success() {
+        Order order = order(53L, 201);
+        order.setShipChannel("SF");
+        order.setShipSn("SF0001");
+        when(orderMapper.selectOne(any())).thenReturn(order);
+        when(orderLogMapper.selectCount(any())).thenReturn(0L);
+        stubCas(1);
+
+        orderService.adminUpdateShip(updateShipDTO(53L));
+
+        ArgumentCaptor<OrderLog> captor = ArgumentCaptor.forClass(OrderLog.class);
+        verify(orderLogMapper).insert(captor.capture());
+        assertThat(captor.getValue().getAction()).isEqualTo("order:ship-update");
+        assertThat(captor.getValue().getResult()).contains("SF0001").contains("→");
+    }
+
+    /* ==================== 辅助 ==================== */
+
+    private void stubCas(int affected) {
+        when(orderMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(affected);
+    }
+
+    @SuppressWarnings("unchecked")
+    private LambdaUpdateWrapper<Order> captureCasWrapper() {
+        ArgumentCaptor<LambdaUpdateWrapper<Order>> captor =
+                ArgumentCaptor.forClass((Class) LambdaUpdateWrapper.class);
+        verify(orderMapper).update(isNull(), captor.capture());
+        return captor.getValue();
+    }
+
+    private Order order(Long id, int status) {
         return new Order()
                 .setId(id)
                 .setOrderSn("SN" + id)
@@ -233,15 +396,23 @@ class OrderAdminStateMachineTest {
                 .setDeleted(false);
     }
 
+    private Order expired(Long id) {
+        return order(id, 101).setExpireTime(LocalDateTime.now().minusMinutes(1));
+    }
+
     private OrderShipDTO shipDTO(Long orderId) {
         OrderShipDTO dto = new OrderShipDTO();
         dto.setOrderId(orderId);
+        dto.setShipChannel("SF");
+        dto.setShipSn("SF123456");
         return dto;
     }
 
-    private OrderRefundDTO refundDTO(Long orderId) {
-        OrderRefundDTO dto = new OrderRefundDTO();
+    private OrderShipDTO updateShipDTO(Long orderId) {
+        OrderShipDTO dto = new OrderShipDTO();
         dto.setOrderId(orderId);
+        dto.setShipChannel("YTO");
+        dto.setShipSn("YT9999");
         return dto;
     }
 }

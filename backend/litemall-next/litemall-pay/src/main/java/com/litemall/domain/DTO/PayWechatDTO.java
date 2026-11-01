@@ -19,4 +19,11 @@ public class PayWechatDTO {
     @NotNull(message = "订单ID不能为空")
     @Schema(description = "订单ID", type = "string")
     private Long orderId;
+
+    /**
+     * 演示支付结果（CI-103）：success（默认）/ fail。
+     * 仅决定本端点返回的 payResult，不改变订单状态、不释放库存、不退券。
+     */
+    @Schema(description = "演示支付结果：success（默认）/ fail", allowableValues = {"success", "fail"})
+    private String mode;
 }
