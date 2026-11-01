@@ -1,48 +1,257 @@
+<!-- 优惠券：对齐 prototype/assets/app.js coupons（2923-3018）——领券中心 / 我的券 -->
 <template>
-  <div class="coupons">
-    <van-nav-bar title="我的优惠券" left-arrow @click-left="$router.back()" />
-    <van-tabs v-model:active="tab">
-      <van-tab title="未使用" />
-      <van-tab title="已使用" />
-      <van-tab title="已过期" />
-    </van-tabs>
-    <van-card v-for="c in list" :key="c.id" :title="c.name" :price="c.discount">
-      <template #desc>
-        <p class="coupon-desc">满{{ c.min }}元可用</p>
-        <p class="coupon-time">有效期至：{{ c.endTime || '长期有效' }}</p>
+  <div class="c-page">
+    <div class="c-head">
+      <div class="back" @click="goBack"><AppIcon name="back" :size="18" /></div>
+      <div class="title">优惠券</div>
+      <div style="width: 30px" />
+    </div>
+
+    <div class="seg-tabs" style="margin: 10px 12px 0">
+      <button type="button" :class="{ on: seg === 'center' }" @click="switchSeg('center')">领券中心</button>
+      <button type="button" :class="{ on: seg === 'mine' }" @click="switchSeg('mine')">我的券（{{ mineTotal }}）</button>
+    </div>
+
+    <div class="c-body">
+      <!-- 领券中心 -->
+      <template v-if="seg === 'center'">
+        <div class="tiny dim" style="margin-bottom: 8px">
+          一人一券：同一张券只能领 1 次（BR-CP-01）；领过与领完会给出不同提示（BR-CP-02/03）。
+        </div>
+        <div v-if="centerLoading" class="loading-more">加载中…</div>
+        <template v-else-if="centerList.length">
+          <div v-for="c in centerList" :key="c.id" class="card pad" style="margin-bottom: 10px">
+            <div class="row between">
+              <div class="grow">
+                <div class="bold" style="font-size: 14px">{{ c.name }}</div>
+                <div class="tiny dim mt6">满 {{ yuan(c.min) }} 可用 · 有效期至 {{ dateOnly(c.endTime) }}</div>
+                <div class="tiny dim mt6">
+                  剩余 {{ leftOf(c) }} 张
+                  <span v-if="leftOf(c) > 0 && leftOf(c) <= 5" class="tag warn">仅剩 {{ leftOf(c) }} 张</span>
+                  <span v-if="gotIds.includes(String(c.id))" class="tag ok">已领取</span>
+                  <span v-if="c.leftCount === 0 && !gotIds.includes(String(c.id))" class="tag danger">已领完</span>
+                </div>
+                <div v-if="c.desc" class="tiny dim mt6">{{ c.desc }}</div>
+              </div>
+              <div style="text-align: right">
+                <div style="color: var(--price); font-weight: 800; font-size: 22px">
+                  <span style="font-size: 13px">¥</span>{{ yuan(c.discount) }}
+                </div>
+                <button
+                  type="button"
+                  class="btn sm mt6"
+                  :class="claimState(c) === 'claim' ? 'primary' : 'ghost'"
+                  :disabled="claimState(c) !== 'claim' || claiming === String(c.id)"
+                  @click="claim(c)"
+                >
+                  {{ claimText(c) }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </template>
+        <EmptyState v-else icon="tag" title="暂无可领的券" hint="商家配置优惠券后会出现在这里（CI-53）" />
       </template>
-    </van-card>
-    <van-empty v-if="!list.length" description="暂无优惠券">
-      <van-button round type="primary" size="small" @click="$router.push('/user/coupon-center')">去领券中心</van-button>
-    </van-empty>
+
+      <!-- 我的券 -->
+      <template v-else>
+        <TabsStrip v-model="subTab" :items="subTabs" />
+        <div v-if="mineLoading" class="loading-more">加载中…</div>
+        <template v-else-if="mineList.length">
+          <div
+            v-for="m in mineList"
+            :key="m.id"
+            class="card pad"
+            style="margin-bottom: 10px"
+            :style="subTab !== 'unused' ? 'opacity:.72' : ''"
+          >
+            <div class="row between">
+              <div class="grow">
+                <div class="bold" style="font-size: 14px">{{ m.name }}</div>
+                <div class="tiny dim mt6">满 {{ yuan(m.min) }} 可用 · {{ dateOnly(m.endTime) }} 到期</div>
+                <div class="mt8">
+                  <span class="tag" :class="subTab === 'unused' ? 'ok' : 'gray'">{{ subTabText(subTab) }}</span>
+                  <span v-if="subTab === 'unused'" class="tiny dim">下单时自动可选</span>
+                </div>
+              </div>
+              <div style="color: var(--price); font-weight: 800; font-size: 22px">
+                <span style="font-size: 13px">¥</span>{{ yuan(m.discount) }}
+              </div>
+            </div>
+          </div>
+        </template>
+        <EmptyState
+          v-else
+          icon="tag"
+          :title="subTab === 'unused' ? '还没有可用的券' : '这里还是空的'"
+          :hint="subTab === 'unused' ? '去「领券中心」领一张，下单时自动可选' : ''"
+        >
+          <button v-if="subTab === 'unused'" type="button" class="btn primary" @click="switchSeg('center')">去领券</button>
+        </EmptyState>
+      </template>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
-import { couponMyList } from '@/api/market'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import AppIcon from '@/components/AppIcon.vue'
+import EmptyState from '@/components/EmptyState.vue'
+import TabsStrip from '@/components/TabsStrip.vue'
+import { couponList, couponMyList, couponReceive } from '@/api/market'
+import { toast } from '@/utils/toast'
 
-const list = ref([])
-const tab = ref(0)
-const statusMap = ['unused', 'used', 'expired']
+const route = useRoute()
+const router = useRouter()
 
-const load = async () => {
-  const res = (await couponMyList({ status: statusMap[tab.value], pageNum: 1, pageSize: 20 })) || {}
-  list.value = res.list || []
+const seg = ref(route.query.tab === 'mine' ? 'mine' : 'center')
+const subTab = ref(['unused', 'used', 'expired'].includes(String(route.query.sub)) ? String(route.query.sub) : 'unused')
+
+const centerList = ref([])
+const centerLoading = ref(false)
+const mineList = ref([])
+const mineLoading = ref(false)
+const mineTotal = ref(0)
+const claiming = ref('')
+const mineIds = ref([])
+
+const subTabs = ref([
+  { key: 'unused', label: '未使用', count: 0 },
+  { key: 'used', label: '已使用', count: 0 },
+  { key: 'expired', label: '已过期', count: 0 },
+])
+
+const gotIds = computed(() => mineIds.value)
+
+function subTabText(k) {
+  return { unused: '可用', used: '已使用', expired: '已过期' }[k] || '可用'
 }
-watch(tab, load)
-onMounted(load)
+
+/** 06 §4：金额对外一律整数分。若后端仍返回元（小数），按元×100 兜底并告警。 */
+function toCent(v) {
+  if (v == null || v === '') return 0
+  if (typeof v === 'string' && v.includes('.')) {
+    console.warn('[coupons] 金额疑似元单位（应遵循 06 §4 整数分）：', v)
+    return Math.round(Number(v) * 100)
+  }
+  if (typeof v === 'number' && !Number.isInteger(v)) {
+    console.warn('[coupons] 金额疑似元单位（应遵循 06 §4 整数分）：', v)
+    return Math.round(v * 100)
+  }
+  return Number(v) || 0
+}
+
+function yuan(v) {
+  const cent = toCent(v)
+  const n = cent / 100
+  return Number.isInteger(n) ? String(n) : n.toFixed(2)
+}
+
+function dateOnly(t) {
+  if (!t) return '永久有效'
+  return String(t).slice(0, 10)
+}
+
+function leftOf(c) {
+  if (c.leftCount == null) return 0
+  if (Number(c.leftCount) < 0) return 999
+  return Number(c.leftCount)
+}
+
+function claimState(c) {
+  if (c.status === 'disabled') return 'off'
+  if (gotIds.value.includes(String(c.id))) return 'got'
+  if (c.leftCount != null && Number(c.leftCount) === 0) return 'full'
+  return 'claim'
+}
+
+function claimText(c) {
+  if (claiming.value === String(c.id)) return '领取中…'
+  return { off: '已停用', got: '已领取', full: '已领完', claim: '立即领取' }[claimState(c)]
+}
+
+async function loadCenter() {
+  centerLoading.value = true
+  try {
+    const page = await couponList({ pageNum: 1, pageSize: 50 })
+    centerList.value = page?.list || (Array.isArray(page) ? page : [])
+  } catch {
+    centerList.value = []
+  } finally {
+    centerLoading.value = false
+  }
+}
+
+async function loadMineIds() {
+  try {
+    const page = await couponMyList({ pageNum: 1, pageSize: 100 })
+    const rows = page?.list || []
+    mineIds.value = rows.map((r) => String(r.couponId ?? r.id))
+    mineTotal.value = Number(page?.total ?? rows.length)
+  } catch {
+    mineIds.value = []
+    mineTotal.value = 0
+  }
+}
+
+async function loadMine() {
+  mineLoading.value = true
+  try {
+    const page = await couponMyList({ pageNum: 1, pageSize: 50, status: subTab.value })
+    mineList.value = page?.list || []
+    subTabs.value = subTabs.value.map((t) =>
+      t.key === subTab.value ? { ...t, count: Number(page?.total ?? mineList.value.length) } : t
+    )
+  } catch {
+    mineList.value = []
+  } finally {
+    mineLoading.value = false
+  }
+}
+
+async function claim(c) {
+  if (claimState(c) !== 'claim') return
+  claiming.value = String(c.id)
+  try {
+    const res = await couponReceive({ couponId: String(c.id) })
+    if (res?.status === 'SUCCESS') {
+      toast('领取成功', 'ok')
+    } else if (res?.status === 'PROCESSING') {
+      toast('领取排队中，稍后可在「我的券」查看', 'ok')
+    } else {
+      toast(res?.message || '领取失败，请稍后再试', 'err')
+    }
+    await Promise.all([loadCenter(), loadMineIds()])
+  } catch (e) {
+    if (e?.message && !e.handled) toast(e.message, 'err')
+  } finally {
+    claiming.value = ''
+  }
+}
+
+function switchSeg(v) {
+  seg.value = v
+}
+
+function goBack() {
+  if (window.history.length > 1) router.back()
+  else router.replace('/me')
+}
+
+watch(subTab, () => loadMine())
+
+watch(seg, (v) => {
+  if (v === 'center') loadCenter()
+  else {
+    loadMineIds()
+    loadMine()
+  }
+})
+
+onMounted(() => {
+  loadCenter()
+  loadMineIds()
+  if (seg.value === 'mine') loadMine()
+})
 </script>
-
-<style scoped>
-.coupon-desc {
-  margin: 0;
-  font-size: 12px;
-  color: #666;
-}
-.coupon-time {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: #999;
-}
-</style>

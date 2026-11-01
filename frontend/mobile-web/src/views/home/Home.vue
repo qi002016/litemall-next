@@ -1,79 +1,214 @@
 <template>
-  <div class="home">
-    <van-nav-bar title="litemall 商城" />
-    <div class="search-entry" @click="goSearch">
-      <van-search v-model="keyword" placeholder="搜索商品" readonly @click-input="goSearch" />
-    </div>
-    <van-notice-bar left-icon="volume-o" :scrollable="true">欢迎来到 litemall 精选商城</van-notice-bar>
-
-    <van-list v-model:loading="loading" :finished="finished" finished-text="— 没有更多了 —" @load="onLoad">
-      <div class="goods-grid">
-        <div v-for="item in list" :key="item.id" class="goods-item" @click="goDetail(item.id)">
-          <van-image width="100%" height="160" fit="cover" :src="item.picUrl" />
-          <p class="name">{{ item.name }}</p>
-          <p class="brief">{{ item.brief }}</p>
-          <p class="price">¥{{ item.minPrice }}</p>
+  <div class="c-page">
+    <div class="c-head x-hhead">
+      <div class="x-chan">
+        <div
+          v-for="c in channels"
+          :key="c.key"
+          class="x-chan-i"
+          :class="{ on: c.key === chan }"
+          @click="selectChan(c.key)"
+        >
+          {{ c.label }}
+        </div>
+        <div class="x-chan-cat" @click="go('/category')">
+          <AppIcon name="grid" :size="13" /><span>分类</span>
         </div>
       </div>
-    </van-list>
+      <div class="x-hsearch">
+        <div class="x-sbox" @click="go('/search')">
+          <span class="x-ico" v-html="SVG_SCAN" />
+          <span class="x-sph">搜商品 / 标签，如「卫衣」</span>
+          <span class="x-ico" v-html="SVG_CAM" />
+        </div>
+        <div class="x-cartbtn" @click="go('/cart')">
+          <AppIcon name="cart" :size="22" />
+          <span v-if="app.cartCount" class="badge-dot">{{ app.cartCount > 99 ? '99+' : app.cartCount }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="c-body" style="padding-top: 10px">
+      <div class="x-bwrap">
+        <div class="x-banner" :style="{ background: banner.bg }" @click="go(banner.href)">
+          <span class="x-btag">{{ banner.tag }}</span>
+          <div class="x-btxt">
+            <div class="x-bt">{{ banner.title }}</div>
+            <div class="x-bs">{{ banner.sub }}</div>
+          </div>
+          <div class="x-bimg" v-html="BANNER_ART" />
+        </div>
+        <div v-if="banners.length > 1" class="x-bdots">
+          <i v-for="(b, i) in banners" :key="i" :class="{ on: i === bannerIdx }" @click="bannerIdx = i" />
+        </div>
+      </div>
+
+      <div class="x-notice">
+        <span class="x-ico" v-html="SVG_BULB" />
+        <div class="grow ellipsis">{{ notice }}</div>
+        <span class="t">{{ noticeTime }}</span>
+      </div>
+
+      <div class="row between" style="margin: 14px 2px 8px">
+        <div class="bold" style="font-size: 15px">{{ chanCatId ? catName + ' · 精选' : '为你推荐' }}</div>
+        <div class="tiny dim">{{ chanCatId ? '共 ' + total + ' 件' : '在售 ' + total + ' 件' }}</div>
+      </div>
+
+      <div v-if="loading" class="loading-more">加载中…</div>
+      <template v-else>
+        <div v-if="list.length" class="goods-grid">
+          <GoodsCard v-for="g in list" :key="g.id" :g="g" @click="go('/goods/' + g.id)" />
+        </div>
+        <EmptyState v-else icon="grid" title="该分类暂无在售商品" hint="换一个频道看看" />
+        <div v-if="list.length && list.length < total" class="loading-more" @click="loadMore">加载更多</div>
+        <div v-else-if="list.length" class="tiny dim center" style="padding: 14px 0 4px">已经到底了</div>
+      </template>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { goodsList } from '@/api/goods'
+import AppIcon from '@/components/AppIcon.vue'
+import GoodsCard from '@/components/GoodsCard.vue'
+import EmptyState from '@/components/EmptyState.vue'
+import { goodsList, categoryTree } from '@/api/goods'
+import { adList, noticeList } from '@/api/market'
+import { useAppStore } from '@/store/app'
+import { fromNow } from '@/utils/format'
+import { SVG_SCAN, SVG_CAM, SVG_BULB, BANNER_ART } from '@/utils/svg'
 
 const router = useRouter()
-const keyword = ref('')
-const list = ref([])
-const loading = ref(false)
-const finished = ref(false)
-const pageNum = ref(1)
+const app = useAppStore()
 
-const onLoad = async () => {
+const channels = ref([{ key: 'rec', label: '推荐' }])
+const chan = ref('rec')
+const list = ref([])
+const total = ref(0)
+const pageNum = ref(1)
+const pageSize = 20
+const loading = ref(true)
+
+const banners = ref([])
+const bannerIdx = ref(0)
+const notice = ref('演示环境：支付走模拟分支，不产生真实扣款；订单 30 分钟内未支付将自动关闭。')
+const noticeTime = ref('')
+let timer = null
+
+const chanCatId = computed(() => (chan.value === 'rec' ? '' : chan.value))
+const catName = computed(() => {
+  const c = channels.value.find((x) => x.key === chan.value)
+  return c ? c.label : ''
+})
+const banner = computed(
+  () =>
+    banners.value[bannerIdx.value] || {
+      tag: '限时',
+      title: '小满商城 · 春夏上新',
+      sub: '精选好物 一站购齐',
+      bg: 'linear-gradient(120deg,#FF7A18,#FF4D4D)',
+      href: '/list',
+    }
+)
+
+function go(path) {
+  router.push(path)
+}
+
+async function loadGoods(reset = false) {
+  if (reset) {
+    pageNum.value = 1
+    loading.value = true
+  }
+  const params = { pageNum: pageNum.value, pageSize }
+  if (chanCatId.value) params.categoryId = chanCatId.value
   try {
-    const data = await goodsList({ pageNum: pageNum.value, pageSize: 10 })
-    const records = data?.list || data || []
-    list.value.push(...records)
-    if (!data || !data.list || data.list.length < 10) finished.value = true
-    pageNum.value++
+    const page = await goodsList(params)
+    const rows = page?.list || []
+    total.value = Number(page?.total ?? rows.length)
+    list.value = pageNum.value === 1 ? rows : list.value.concat(rows)
+  } catch {
+    if (pageNum.value === 1) {
+      list.value = []
+      total.value = 0
+    }
   } finally {
     loading.value = false
   }
 }
 
-const goSearch = () => router.push('/search')
-const goDetail = (id) => router.push(`/goods/${id}`)
-</script>
+function loadMore() {
+  pageNum.value += 1
+  loadGoods()
+}
 
-<style scoped>
-.goods-grid {
-  display: flex;
-  flex-wrap: wrap;
-  padding: 6px;
+function selectChan(key) {
+  if (key === chan.value) return
+  chan.value = key
+  loadGoods(true)
 }
-.goods-item {
-  width: 50%;
-  box-sizing: border-box;
-  padding: 6px;
-  background: #fff;
-  margin-bottom: 8px;
+
+async function loadCategories() {
+  try {
+    const cats = await categoryTree()
+    const tops = (Array.isArray(cats) ? cats : []).slice(0, 6)
+    if (tops.length) {
+      channels.value = [{ key: 'rec', label: '推荐' }].concat(
+        tops.map((c) => ({ key: String(c.id), label: c.name }))
+      )
+    }
+  } catch {
+    /* 分类拉取失败时仅保留「推荐」，不影响首页 */
+  }
 }
-.goods-item .name {
-  font-size: 14px;
-  margin: 6px 0 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+
+async function loadBanners() {
+  try {
+    const page = await adList({ pageNum: 1, pageSize: 3 })
+    const rows = (page?.list || []).filter((a) => a && (a.name || a.url))
+    if (rows.length) {
+      const grads = ['#FF7A18,#FF4D4D', '#FF8A3D,#FF2741', '#FF6A00,#FF9A3D']
+      banners.value = rows.map((a, i) => ({
+        tag: '推荐',
+        title: a.name || '小满商城',
+        sub: '限时活动 · 精选好物',
+        bg: `linear-gradient(120deg, ${grads[i % 3]})`,
+        href: a.link && String(a.link).startsWith('/') ? a.link : '/list',
+      }))
+      timer = setInterval(() => {
+        bannerIdx.value = (bannerIdx.value + 1) % banners.value.length
+      }, 4000)
+    }
+  } catch {
+    /* 广告位为空时用静态 banner */
+  }
 }
-.goods-item .brief {
-  font-size: 12px;
-  color: #999;
-  margin: 0 0 4px;
+
+async function loadNotices() {
+  try {
+    const page = await noticeList({ pageNum: 1, pageSize: 1 })
+    const rows = page?.list || []
+    if (rows.length) {
+      notice.value = rows[0].title || rows[0].content || notice.value
+      noticeTime.value = fromNow(rows[0].addTime)
+    }
+  } catch {
+    /* 公告为空保持静态提示 */
+  }
 }
-.goods-item .price {
-  color: #ee0a24;
-  font-weight: bold;
-}
-</style>
+
+onMounted(() => {
+  loadCategories()
+  loadBanners()
+  loadNotices()
+  loadGoods(true)
+  app.refreshCartCount()
+  app.refreshUnread()
+})
+
+onBeforeUnmount(() => {
+  if (timer) clearInterval(timer)
+  timer = null
+})
+</script>

@@ -19,9 +19,13 @@ export const addressCreate = (data) => request({ url: '/app/address/create', met
 export const addressUpdate = (addressId, data) =>
   request({ url: '/app/address/update', method: 'post', params: { addressId }, data })
 
-// 删除地址 POST /app/address/delete?addressId=
-export const addressDelete = (addressId) =>
-  request({ url: '/app/address/delete', method: 'post', params: { addressId } })
+// 删除地址 POST /app/address/delete?addressId=（后端 @Validated AddressDTO 需同时带完整地址体）
+export const addressDelete = (addressId, data) =>
+  request({ url: '/app/address/delete', method: 'post', params: { addressId }, data })
+
+// 设置默认地址 GET /app/address/default?addressId=
+export const addressSetDefault = (addressId) =>
+  request({ url: '/app/address/default', method: 'get', params: { addressId } })
 
 // 我的收藏 GET /app/collect/list
 export const collectList = () => request({ url: '/app/collect/list', method: 'get' })
