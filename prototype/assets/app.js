@@ -677,7 +677,9 @@
   var C_ROUTES = [];
 
   /* ---------------------------- 1. 首页（淘宝风格 390×844） ---------------------------- */
-  /* 频道栏固定顺序（不按 cat.sort）：推荐=全部商品，其余按一级分类 id 跳列表 */
+  /* t14 改动 1：首页频道改成「原位筛选」——homeCat 只在 session 内保持，刷新页面回「推荐」。 */
+  var homeCat = 'rec';
+  /* 频道栏固定顺序（不按 cat.sort）：推荐=全部商品，其余按一级分类 id 取商品 */
   var HOME_CHANNELS = [
     { key: 'rec', label: '推荐' },
     { key: 'c1', label: '服饰' },
@@ -687,23 +689,24 @@
     { key: 'c6', label: '美妆' },
     { key: 'c3', label: '数码' }
   ];
+  /* t14 改动 1：频道项不再 data-go，改为 data-act="chan" 原位重绘（不改 URL、不写 history） */
   function homeChannels() {
     return '<div class="x-chan">' + HOME_CHANNELS.map(function (c) {
-      return '<div class="x-chan-i' + (c.key === 'rec' ? ' on' : '') + '" data-go="' +
-        (c.key === 'rec' ? '#/c/list' : '#/c/list?catId=' + esc(c.key)) + '">' + esc(c.label) + '</div>';
+      return '<div class="x-chan-i' + (c.key === homeCat ? ' on' : '') +
+        '" data-act="chan" data-key="' + esc(c.key) + '">' + esc(c.label) + '</div>';
     }).join('') +
       '<div class="x-chan-cat" data-go="#/c/category">' + UI.icon('grid', 13) + '<span>分类</span></div>' +
     '</div>';
   }
+  /* t14 改动 2：首页不放真输入框——整块 .x-sbox 只是一个「去搜索页」的入口（淘宝首页做法） */
   function homeSearchBar() {
     var n = Store.cartCount();
     return '<div class="x-hsearch">' +
-      '<div class="x-sbox">' +
-        '<span class="x-ico" data-go="#/c/search">' + SVG_SCAN + '</span>' +
-        '<input id="home-kw" placeholder="搜商品 / 标签，如「卫衣」" data-enter="homeSearch" />' +
-        '<span class="x-ico" data-go="#/c/search">' + SVG_CAM + '</span>' +
+      '<div class="x-sbox" data-go="#/c/search">' +
+        '<span class="x-ico">' + SVG_SCAN + '</span>' +
+        '<span class="x-sph">搜商品 / 标签，如「卫衣」</span>' +
+        '<span class="x-ico">' + SVG_CAM + '</span>' +
       '</div>' +
-      '<button class="x-sbtn" data-act="homeSearch">搜索</button>' +
       '<div class="x-cartbtn" data-go="#/c/cart">' + UI.icon('cart', 22) +
         (n ? '<span class="badge-dot">' + (n > 99 ? '99+' : n) + '</span>' : '') +
       '</div>' +
@@ -723,7 +726,10 @@
       var st = Store.state;
       var banners = (st.banners || []).slice(0, 3);
       var b0 = banners[0] || { title: '小满商城', sub: '', bg: 'linear-gradient(120deg,#FF7A18,#FF4D4D)' };
-      var list = Store.goodsList({});
+      /* t14 改动 1：推荐=全部在售；其余按一级分类（store 的 catId 已含子类） */
+      var channelCat = homeCat === 'rec' ? '' : homeCat;
+      var list = Store.goodsList(channelCat ? { catId: channelCat } : {});
+      var channelName = channelCat ? catName(channelCat) : '';
 
       return {
         html: '<div class="c-page">' +
@@ -740,19 +746,38 @@
               '<div class="grow ellipsis">' + esc(st.notice.text) + '</div>' +
               '<span class="t">' + UI.fromNow(st.notice.at) + '</span></div>' +
             '<div class="row between" style="margin:14px 2px 8px">' +
-              '<div class="bold" style="font-size:15px">为你推荐</div>' +
-              '<div class="tiny dim">在售 ' + list.length + ' 件</div></div>' +
-            '<div class="goods-grid">' + list.map(goodsCard).join('') + '</div>' +
+              '<div class="bold" style="font-size:15px">' +
+                (channelCat ? esc(channelName) + ' · 精选' : '为你推荐') + '</div>' +
+              '<div class="tiny dim">' +
+                (channelCat ? '共 ' + list.length + ' 件' : '在售 ' + list.length + ' 件') + '</div></div>' +
+            (list.length
+              ? '<div class="goods-grid">' + list.map(goodsCard).join('') + '</div>'
+              : emp({ icon: 'grid', title: '该分类暂无在售商品', hint: '换一个频道看看' })) +
             '<div class="tiny dim center" style="padding:14px 0 4px">已经到底了 · 演示数据</div>' +
           '</div>' +
         '</div>',
         tab: 'home',
         title: '首页',
         actions: {
-          homeSearch: function () {
-            var el = document.getElementById('home-kw');
-            var kw = el ? String(el.value || '').trim() : '';
-            go(kw ? '#/c/list?kw=' + encodeURIComponent(kw) : '#/c/list');
+          /* t14 改动 1：原位重绘，不改 URL / 不写 history / 不跳路由；重绘后保持滚动位置 */
+          chan: function (el) {
+            var k = el.getAttribute('data-key') || 'rec';
+            if (k === homeCat) return;
+            var se = document.scrollingElement || document.documentElement;
+            var y = se ? se.scrollTop : 0;
+            var sc = document.getElementById('c-scroll');
+            var y2 = sc ? sc.scrollTop : 0;
+            homeCat = k;
+            render();
+            /* 重绘后内容高度会变：按「原位置、不足则贴底」回填，并在下一轮事件循环再补一次
+               （避免浏览器 scroll anchoring 在列表换批时把位置拉走）。不强制回顶。 */
+            function restore() {
+              if (se) se.scrollTop = Math.min(y, Math.max(0, se.scrollHeight - se.clientHeight));
+              var s2 = document.getElementById('c-scroll');
+              if (s2) s2.scrollTop = Math.min(y2, Math.max(0, s2.scrollHeight - s2.clientHeight));
+            }
+            restore();
+            setTimeout(restore, 0);
           }
         },
         mount: function (root, ctx) {
@@ -943,16 +968,28 @@
         }).join('') +
       '</div>';
 
+      /* t14 改动 3：分类 = 上半屏白色面板（56vh）+ 下半屏暗色遮罩，全部走正常文档流，
+         不用 absolute/fixed——窄屏整页滚动时 absolute 会跟着内容滚走。 */
       return {
-        html: '<div class="c-page">' + UI.cHeader({ title: '分类' }) +
-          '<div style="display:flex;min-height:600px">' +
-            '<div class="x-cat-left">' + left + '</div>' +
-            '<div class="x-cat-right">' +
-              '<div class="bold" style="margin-bottom:10px">' + esc(curTop.name) + '</div>' + subs +
+        html: '<div class="c-page x-catpage">' +
+          '<div class="x-catpanel">' +
+            '<div class="x-catpanel-hd">' +
+              '<div class="t">分类</div>' +
+              '<div class="x-catclose" data-act="closeCat">' + UI.icon('close', 18) + '</div>' +
+            '</div>' +
+            '<div class="x-catpanel-bd">' +
+              '<div class="x-cat-left">' + left + '</div>' +
+              '<div class="x-cat-right">' +
+                '<div class="bold" style="margin-bottom:8px;font-size:13px">' + esc(curTop.name) + '</div>' + subs +
+              '</div>' +
             '</div>' +
           '</div>' +
+          '<div class="x-catmask" data-act="closeCat"></div>' +
         '</div>',
-        title: '分类'
+        title: '分类',
+        actions: {
+          closeCat: function () { go('#/c/home'); }
+        }
       };
     }
   });
@@ -1044,7 +1081,17 @@
             action: '<button class="btn primary" data-act="clearAll">清除筛选</button>'
           });
 
-      var html = '<div class="c-page">' + UI.cHeader({ title: '商品列表' }) +
+      /* t14 改动 4：列表页顶部换成「返回 + 搜索框 + AI 助手」；高度必须仍是 48px，
+         否则窄屏 .x-listbar 的 sticky 基线（top:100 = 52 + 48）会错位。 */
+      var listHead = '<div class="c-head x-lhead">' +
+        '<div class="back" data-go="back">' + UI.icon('back', 18) + '</div>' +
+        '<div class="x-lsearch" data-go="#/c/search">' + UI.icon('search', 15) +
+          '<span class="' + (kw ? 'x-lkw' : 'x-sph') + '">' + esc(kw || '搜商品 / 标签') + '</span>' +
+        '</div>' +
+        '<button class="x-aibtn" data-act="ai">' + UI.icon('comment', 16) + '<span>AI</span></button>' +
+      '</div>';
+
+      var html = '<div class="c-page">' + listHead +
         '<div class="pad" style="padding-bottom:2px">' +
           '<div class="row between"><div class="bold ellipsis">' + esc(head) + '</div>' +
             '<span class="tiny dim" style="flex:none">共 ' + list.length + ' 件</span></div>' +
@@ -1177,7 +1224,10 @@
           },
           stock: function () { go(listUrl(mix(cond, { onlyStock: !onlyStock }))); },
           filter: openFilter,
-          clearAll: function () { go('#/c/list'); }
+          clearAll: function () { go('#/c/list'); },
+          ai: function () {
+            toast('AI 助手为独立立项（需求文档 §5），R1–R3 期间暂不开放，此处为入口占位');
+          }
         }
       };
     }

@@ -856,10 +856,6 @@ input, textarea, select { font-family: inherit; font-size: 14px; color: var(--te
   outline: none; font-size: 12.5px; color: #222;
 }
 .x-sbox input::placeholder { color: #A8AEB8; }
-.x-sbtn {
-  flex: none; height: 34px; padding: 0 14px; border: 0; border-radius: 999px;
-  background: var(--brand); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
-}
 .x-cartbtn { position: relative; flex: none; width: 28px; height: 34px; display: grid; place-items: center; color: #333; cursor: pointer; }
 .x-cartbtn .badge-dot {
   position: absolute; top: -2px; right: -4px; min-width: 15px; height: 15px; padding: 0 4px;
@@ -982,4 +978,80 @@ input, textarea, select { font-family: inherit; font-size: 14px; color: var(--te
   .demo-bar .seg { flex: none; }
   .demo-bar .seg button { flex: none; white-space: nowrap; padding: 6px 10px; font-size: 12px; }
   .demo-bar .demo-btn { flex: none; white-space: nowrap; padding: 6px 8px; font-size: 11.5px; }
+}
+
+/* =====================================================================
+   t14：首页频道原位筛选 / 搜索占位 / 分类上半屏抽屉 / 列表页顶部 bar
+   ===================================================================== */
+
+/* ---- 改动 2：首页搜索胶囊里的只读占位（删掉 #home-kw 与「搜索」按钮后，整块 x-sbox 可点） ---- */
+.x-sph {
+  flex: 1; min-width: 0; font-size: 12.5px; color: #A8AEB8;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ---- 改动 3：分类 = 上半屏面板 + 下半屏遮罩（正常流，不用 absolute/fixed） ---- */
+.x-catpage {
+  display: flex; flex-direction: column; padding-bottom: 0;
+}
+.x-catpanel {
+  flex: none; height: 56vh; display: flex; flex-direction: column;
+  background: #fff; border-radius: 0 0 16px 16px; overflow: hidden;
+}
+.x-catpanel-hd {
+  flex: none; height: 48px; display: flex; align-items: center; justify-content: space-between;
+  padding: 0 12px; border-bottom: 1px solid var(--line);
+}
+.x-catpanel-hd .t { font-size: 15px; font-weight: 700; }
+.x-catclose {
+  width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+  color: var(--text-2); cursor: pointer;
+}
+.x-catclose:hover { background: #f2f4f7; }
+.x-catpanel-bd { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+/* 两栏各自滚动；index.html 内联样式给的是整页版尺寸，这里用后代选择器提高优先级覆盖 */
+.x-catpanel .x-cat-left { width: 88px; flex: none; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.x-catpanel .x-cat-right { flex: 1; min-width: 0; overflow-y: auto; padding: 10px 12px 14px; -webkit-overflow-scrolling: touch; }
+.x-catpanel .x-cat-item { padding: 11px 6px; }
+.x-catpanel .x-sub .it { padding: 10px 6px; }
+.x-catmask { flex: 1; min-height: 120px; background: rgba(0, 0, 0, .38); }
+
+/* ---- 改动 4：列表页顶部 bar（高度必须 48px，与 .c-head 一致） ---- */
+.x-lhead { height: 48px; gap: 8px; padding: 0 10px; }
+.x-lsearch {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
+  height: 34px; padding: 0 10px; border-radius: 999px; background: #F5F5F7;
+  color: #9AA0A6; cursor: pointer;
+}
+.x-lsearch span {
+  flex: 1; min-width: 0; font-size: 12.5px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.x-lsearch .x-lkw { color: #111; font-weight: 600; }
+.x-aibtn {
+  flex: none; display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px;
+  border: 1px solid var(--brand); border-radius: 999px; background: #fff;
+  color: var(--brand); font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.x-aibtn:active { background: var(--brand-soft); }
+
+/* 窄屏整页滚动：手机壳没有确定高度，`.c-page{min-height:100%}` 会塌成 0，
+   这里补一个视口基准，让下半屏遮罩铺满剩余高度（宽屏仍用 .c-page 的 100%，贴合画框）。 */
+@media (max-width: 640px) {
+  .x-catpage { min-height: calc(100vh - 52px); }
+}
+
+/* 首页频道原位换商品时列表会整批替换：关掉 scroll anchoring，滚动位置由 app.js 的回填逻辑决定，
+   否则浏览器会按「锚点元素」自己把滚动位置拉走，表现为切换后莫名跳动。 */
+.c-body { overflow-anchor: none; }
+
+/* ---- t16 / V-01：宽屏预览时，抽屉高度按「手机画框」而不是「视口」算 ----
+   窄屏（≤640px）是整页滚动，视口≈画框，`56vh` 合理；宽屏（>640px）手机是个
+   固定画框 `.phone`（min-height:800px、max-height:calc(100vh-100px)），`56vh`
+   会按 1200×900 的视口算成 504px，占 800px 画框的 63%，下半屏遮罩只剩 276px。
+   这里改为画框基准的定值 448px（800×0.56），与窄屏 56% 对齐；再用
+   `max-height:56vh` 兜底，避免视口很矮时抽屉把画框撑爆（画框本身受
+   `calc(100vh - 100px)` 限制，448px 定值在极矮视口下会超标）。 */
+@media (min-width: 641px) {
+  .x-catpanel { height: 448px; max-height: 56vh; }
 }

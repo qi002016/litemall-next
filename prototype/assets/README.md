@@ -88,14 +88,16 @@ render(ctx) => {
 - **手机端底部 Tab**（t9 起）：固定 4 项 **首页 / 消息 / 购物车 / 我的**（原来的「分类」Tab 已由消息 Tab 取代；分类唯一入口改为首页频道栏末尾的「分类」胶囊 → `#/c/category`）。消息 Tab 带未读红点（`Store.unreadCount()`，>99 显示 `99+`），购物车 Tab 带件数角标（`Store.cartCount()`，0 不显示）。**没有 AI 助手入口**（需求裁定 R1–R3 期间隐藏）。
 - **后台**：`.admin > .aside`（9 项菜单，售后带待处理角标 `Store.stats().pendingAs`）+ `.admin-main`（`.admin-head` 显示 `title` +「我是运营 / 客服（演示身份）」+ 返回手机端按钮，`.admin-body` 渲染屏幕）。`#/admin/login` 例外：不渲染侧栏，整屏居中登录卡。
 
+> **行为变更速查（t14）**：①`#/c/home` 频道栏改为**原位筛选**，不跳转、不改 URL、不写 history；②首页搜索胶囊只是「去搜索页」的入口，**没有输入框、没有「搜索」按钮**；③`#/c/category` 从整页分类改为**上半屏抽屉 + 下半屏遮罩**（无 `.c-head`，靠右上 `×` / 点遮罩关闭）；④`#/c/list` 顶部换成「返回 + 搜索框 + AI 助手占位」。逐条落点与实测见 §14。
+
 ## 3. 手机端 21 屏清单（17 主流程 + 4 屏界面改版新增）
 
 | # | 路由 | 屏幕 | 需求编号 | 说明 |
 | --- | --- | --- | --- | --- |
-| 1 | `#/c/home` | 首页（t9 淘宝式改版） | 5.2 导购 / BR-GOODS-05、08、10 | 固定头（sticky）= 白色频道栏（推荐/服饰/家居/食品/运动/美妆/数码，选中黑粗 + 橙色 16×3px 下划线；末项「分类」胶囊 → `#/c/category`）+ 白胶囊搜索栏（左扫码 / 右相机 / 橙色「搜索」按钮 / 购物车图标带角标）；主体 = 3 张渐变 Banner 轮播（半透明 tag + 大标题 + 副标 + 内联 SVG 插图 + 3 个指示点，4s 自动播）+ 提示条（`notice.text`，`#FFF8E6` 底 + 灯泡 SVG + `UI.fromNow`）+「为你推荐」两列商品卡 + 到底标注；下架不出现，全售罄标「暂时缺货」 |
+| 1 | `#/c/home` | 首页（t9 淘宝式改版；t14 频道原位筛选） | 5.2 导购 / BR-GOODS-05、08、10 | 固定头（sticky）= 白色频道栏（推荐/服饰/家居/食品/运动/美妆/数码，选中黑粗 + 橙色 16×3px 下划线；**点击即原位换商品，不跳列表**；末项「分类」胶囊 → `#/c/category`）+ 白胶囊搜索栏（左扫码 / 右相机 / 整块 `data-go="#/c/search"`，**无输入框、无「搜索」按钮** / 购物车图标带角标）；主体 = 3 张渐变 Banner 轮播（半透明 tag + 大标题 + 副标 + 内联 SVG 插图 + 3 个指示点，4s 自动播）+ 提示条（`notice.text`，`#FFF8E6` 底 + 灯泡 SVG + `UI.fromNow`）+「为你推荐」两列商品卡 + 到底标注；下架不出现，全售罄标「暂时缺货」 |
 | 2 | `#/c/search` | 搜索 | BR-SEARCH-01~03、07 | 输入框 + 热门词 + 历史词（localStorage `proto-search-history`，最多 8 条，可清空）；提交跳 `#/c/list?kw=` |
-| 3 | `#/c/category` | 分类 | 5.2 | 左侧一级竖排 + 右侧二级网格，点击进 `#/c/list?catId=` |
-| 4 | `#/c/list?kw=&catId=&brandId=&onlyStock=&sort=&minP=&maxP=` | 列表（淘宝式） | BR-SEARCH-01/03/04/05、BR-GOODS-05 | 两列商品网格 + 顶部横滚 chips（综合 / 销量 / 价格↑↓（点两次切换）/ 上新 / 仅看有货）+ 右侧固定「筛选」按钮（有生效条件时高亮并显示个数）；点筛选弹底部 `.sheet`：价格区间（两个输入框 + 0-50/50-100/100-200/200 以上快捷档）、一级分类 chips 单选、8 个品牌 chips 单选、仅看有货开关，底部「重置 / 查看 N 件商品」N 随草稿实时变化；应用后写回 URL；上下限填反自动交换并提示（BR-SEARCH-05）；空结果 `.empty` + 清除筛选 |
+| 3 | `#/c/category` | 分类（t14 上半屏抽屉） | 5.2 | 上半屏白色面板（`height:56vh`，圆角下沿）+ 下半屏暗色遮罩，**正常文档流、不用 absolute/fixed**；面板头部「分类」+ 右上 `×`（`data-act="closeCat"`），面板内左栏一级竖排 + 右栏二级网格各自滚动；点子分类仍 `#/c/list?catId=`；点遮罩或 `×` 回 `#/c/home`；本屏**没有 `.c-head`，因此没有返回键**（唯一关闭方式是 `×` 与遮罩） |
+| 4 | `#/c/list?kw=&catId=&brandId=&onlyStock=&sort=&minP=&maxP=` | 列表（淘宝式） | BR-SEARCH-01/03/04/05、BR-GOODS-05 | 顶部自定义 bar（高 **48px**）= 返回箭头 + 整块可点搜索框（有 `kw` 显示关键词，否则占位「搜商品 / 标签」，点击 → `#/c/search`）+ 橙色描边「AI」胶囊（`data-act="ai"`，占位 toast）；其下两列商品网格 + 顶部横滚 chips（综合 / 销量 / 价格↑↓（点两次切换）/ 上新 / 仅看有货）+ 右侧固定「筛选」按钮（有生效条件时高亮并显示个数）；点筛选弹底部 `.sheet`：价格区间（两个输入框 + 0-50/50-100/100-200/200 以上快捷档）、一级分类 chips 单选、8 个品牌 chips 单选、仅看有货开关，底部「重置 / 查看 N 件商品」N 随草稿实时变化；应用后写回 URL；上下限填反自动交换并提示（BR-SEARCH-05）；空结果 `.empty` + 清除筛选 |
 | 5 | `#/c/goods/:id` | 商品详情 | BR-GOODS-01~06、09、BR-CART-02 | 展示价=可售规格最低价；规格可选、售罄置灰、切换联动价格与库存；未选全规格不能加购/立即购买；数量步进；详情/参数/评价三 Tab；动作条 客服 / 收藏 / 加入购物车 / 立即购买 |
 | 6 | `#/c/cart` | 购物车 | BR-CART-01~07、BR-ORDER-08 | 店铺分组、全选/单选、数量增减、删除、失效区（已下架/规格已删除/缺货，不参与结算）、合计只算勾选、去结算；空车引导去逛逛 |
 | 7 | `#/c/checkout` | 确认订单 | BR-ORDER-02/04/09/10/11、BR-CP-04/05 | 地址卡（无地址提示新增）→ 商品行 → 选券弹层（门槛不足/已领过/已领完/已停用四种不可用原因）→ 金额明细（商品金额/优惠/运费 ¥0/应付）→ 备注 → `Store.submitOrder` 成功跳支付页 |
@@ -423,3 +425,160 @@ CDP_VIEWPORT=390x844 node .shots/t11-check.js  → 9/9
 自检脚本同步：`.shots/t9-check.js:82` 的断言由「sticky 贴视口顶 `headTop===0`」改为「贴演示顶栏下沿 `headTop===52`」——原断言把缺陷当成了预期，已在注释里标注（`.shots/` 为自检产物，不入库）。
 
 证据截图（390×844，`.shots/`）：`t13-a-home-scroll600.png` 95KB、`t13-a-goods-scroll420.png` 35KB、`t13-a-orders-scroll400.png` 48KB。
+
+## 14. 首页频道原位筛选 / 搜索胶囊 / 分类上半屏抽屉 / 列表页顶部 bar（t14）
+
+四项改动，都只落在 `app.js` + `theme.css`（`store.js / ui.js / thumbs.js / index.html / tools/**` 零改动）。改动后体量：`app.js` 3142 行、`theme.css` 1046 行。
+
+### 14.1 改动 1：首页频道原位筛选（不跳转）
+
+| 落点 | 文件:行 | 说明 |
+| --- | --- | --- |
+| `var homeCat = 'rec';` | `app.js:681` | 模块级状态，session 内保持，刷新回「推荐」 |
+| `homeChannels()` | `app.js:693-701` | 频道项由 `data-go="#/c/list?catId=…"` 改为 `data-act="chan" data-key="<key>"`；`.on` 判据由写死 `rec` 改为 `c.key === homeCat`；末项「分类」胶囊保持 `data-go="#/c/category"` |
+| 商品来源 | `app.js:729-732` | `channelCat = homeCat === 'rec' ? '' : homeCat`；`rec` → `Store.goodsList({})`，其余 → `Store.goodsList({ catId: channelCat })`（store 的 catId 已含子类，未改 store） |
+| 区块标题 / 空态 | `app.js:749-755` | `rec` → 「为你推荐」+「在售 N 件」；其余 → 「<分类名> · 精选」+「共 N 件」（分类名取自 `Store.state.cats` 打平查找）；空结果显示 `emp({icon:'grid', title:'该分类暂无在售商品', hint:'换一个频道看看'})` |
+| `chan` 动作 | `app.js:763-785` | `homeCat = el.dataset.key || 'rec'` 后 `render()` **原位重绘**：不改 URL、不写 history、不跳路由；重绘前后分别存取 `document.scrollingElement.scrollTop` 与 `#c-scroll` 的 `scrollTop`，保持滚动位置（不强制回顶） |
+
+`#/c/list?catId=` 的路由能力**完全没有改动**（分类面板与列表页仍在用）。
+
+### 14.2 改动 2：点搜索框整块进搜索页，删「搜索」按钮
+
+| 落点 | 文件:行 | 说明 |
+| --- | --- | --- |
+| `homeSearchBar()` | `app.js:702-716` | `.x-sbox` 整块 `data-go="#/c/search"`；内部只剩「扫码图标 + 只读占位 `span.x-sph` + 相机图标」，**删除 `#home-kw` 输入框**；删除 `.x-sbtn` 按钮；图标不再各自带 `data-go`（父级已覆盖，点图标也只跳一次） |
+| 死代码清理 | — | actions 里的 `homeSearch` 已整块删除（无调用方）；`app.js` 内 `homeSearch` 现在只剩函数名 `homeSearchBar` |
+| `.x-sph` | `theme.css:988-991` | 占位文字 `flex:1` + 12.5px + `#A8AEB8` + 单行省略 |
+| `.x-sbtn` 删除 | `theme.css`（原 `:859-862`） | 整块删除；`.x-hsearch` 现有 `.x-sbox{flex:1}` + `.x-cartbtn` 两件，中间无空档 |
+
+### 14.3 改动 3：分类只占上半屏（正常文档流，不用 absolute/fixed）
+
+> 口径按 captain 第二条指示执行：**不叠在首页内容之上，也不渲染首页 html**；`#/c/category` 就是「上半屏白面板 + 下半屏暗色遮罩」一屏，DOM 简单、不与首页 Banner 轮播的 `mount` 打架。
+
+| 落点 | 文件:行 | 说明 |
+| --- | --- | --- |
+| 面板结构 | `app.js:972-994` | `.c-page.x-catpage` > `.x-catpanel`（`.x-catpanel-hd` 标题「分类」+ 右上 `.x-catclose[data-act=closeCat]`；`.x-catpanel-bd` 内仍是原「`.x-cat-left` 一级竖排 + `.x-cat-right` 二级网格」）+ `.x-catmask[data-act=closeCat]` |
+| `closeCat` 动作 | `app.js:990-992` | `go('#/c/home')`；遮罩与 `×` 共用 |
+| `.x-catpage` | `theme.css:994-996` | `display:flex; flex-direction:column; padding-bottom:0`；**不设 min-height**，宽屏沿用 `.c-page{min-height:100%}` 贴合画框 |
+| `.x-catpage` 窄屏基准 | `theme.css:1040-1043` | `@media (max-width:640px)` 内 `min-height: calc(100vh - 52px)`——窄屏手机壳没有确定高度，`100%` 会塌成 0 |
+| `.x-catpanel` | `theme.css:997-1000` | `height:56vh`（不用 `%`：父级没高度）+ `flex-direction:column` + `overflow:hidden` + 下沿 16px 圆角 |
+| `.x-catpanel-hd / .x-catclose / .x-catpanel-bd` | `theme.css:1001-1011` | 头部 48px；面板体 `flex:1;min-height:0;display:flex;overflow:hidden` |
+| 两栏滚动 | `theme.css:1013-1016` | `.x-catpanel .x-cat-left{width:88px;overflow-y:auto}`、`.x-catpanel .x-cat-right{flex:1;overflow-y:auto}`；用后代选择器（0,2,0）压过 `index.html` 内联的整页版尺寸（0,1,0） |
+| `.x-catmask` | `theme.css:1017` | `flex:1; min-height:120px; background:rgba(0,0,0,.38)`——正常流占据下半屏 |
+| `.c-body` | `theme.css:1046` | `overflow-anchor:none`——频道换批时列表整块替换，关掉 scroll anchoring，滚动位置只由 `app.js` 的回填逻辑决定（否则浏览器会按锚点自己拉走，表现为切换后莫名跳动） |
+
+**没有 `.c-head`**：分类屏从此没有 `UI.cHeader` 的返回键，关闭方式只有右上 `×` 与点遮罩（两者都回 `#/c/home`）。§10 的「除 home/category/cart/me 外都要有返回键」这条自查口径不变，分类屏本来就在豁免名单里。
+
+### 14.4 改动 4：列表页顶部 = 搜索框 + AI 助手
+
+| 落点 | 文件:行 | 说明 |
+| --- | --- | --- |
+| 自定义 bar | `app.js:1084-1093` | 替换 `UI.cHeader({title:'商品列表'})`：`.c-head.x-lhead` = `.back[data-go="back"]` + `.x-lsearch[data-go="#/c/search"]`（`kw` 有值显示关键词、无值占位「搜商品 / 标签」）+ `button.x-aibtn[data-act="ai"]`（`UI.icon('comment',16)` + 「AI」） |
+| `ai` 动作 | `app.js:1228-1232` | `toast('AI 助手为独立立项（需求文档 §5），R1–R3 期间暂不开放，此处为入口占位')`，不跳路由 |
+| `.x-lhead` | `theme.css:1020` | `height:48px; gap:8px; padding:0 10px`——**高度必须 48px**，窄屏 `.x-listbar{top:100px}`（52 + 48）依赖它 |
+| `.x-lsearch / .x-lkw` | `theme.css:1021-1030` | 34px 圆角胶囊 `#F5F5F7`；`.x-lkw` 关键词深色加粗 |
+| `.x-aibtn` | `theme.css:1031-1036` | 28px 胶囊、白底 + `--brand` 描边、12px 加粗橙字 |
+
+`.pad` 的「<head> + 共 N 件」与 `.x-listbar` 的 chips + 筛选按钮**全部保留**；筛选 sheet（`openFilter` 及其一切逻辑）**一行未改**。
+
+### 14.5 t14 自检（真实输出，390×844 手机视口）
+
+```text
+node --check assets/app.js              → 通过（CHECK_OK）
+node tools/scan.js                      → 31 路由：空屏 0 / 可疑文案 0 / 横向溢出 0
+CDP_VIEWPORT=390x844 node tools/scan.js → 31 路由：空屏 0 / 可疑文案 0 / 横向溢出 0
+node tools/r1.js                        → 15/15 通过；console.error=0；未捕获异常=0（断言一行未改）
+node tools/fix-check.js                 → 7/7 通过
+node tools/store-fix-check.js           → PASS 22 / FAIL 0
+CDP_VIEWPORT=390x844 node .shots/t14-check.js → 24/24 通过（一次性取证脚本，不入库）
+CDP_VIEWPORT=390x844 node .tmp-proto-c/t14-extra.js → 2/2 通过（滚动位置 / 面板子类，不入库）
+```
+
+`t14-check.js` 关键实测（390×844）：
+
+```text
+首页初始="为你推荐" / "在售 17 件"，cards=17
+点「服饰」→ URL 不变 #/c/home（was #/c/home）；频道高亮=服饰；标题="服饰 · 精选"
+            件数 17 → 5（M<N）；5 张卡的 catId = ["c11","c13","c12","c11","c12"] 全属 c1 及子类
+点回「推荐」→ 恢复 17 件
+首页不再有 #home-kw / .x-sbtn；点 .x-sph（搜索框空白处）→ #/c/search
+点「分类」胶囊 → #/c/category；.x-catpanel 高度 472.6 / 视口 844 = 0.560（≤0.60）
+面板两栏 computed overflow-y = auto / auto；分类屏无 .c-head（head=false）
+点遮罩 → #/c/home；点 × → #/c/home
+列表页 bar：{h:48, search:true, ai:true, kw:"卫衣", aiText:"AI", listbar:true}
+点 AI → toast「AI 助手为独立立项（需求文档 §5），R1–R3 期间暂不开放，此处为入口占位」，hash 仍 #/c/list?kw=卫衣
+点列表页搜索框 → #/c/search
+```
+
+宽屏不受影响（`CDP_VIEWPORT=1200x900` 实测）：`.phone` = 394..806 × 78..878；`.x-catpanel` = 404..796 × 88..592（504px = 0.560 视口高），**完整落在画框内**；`.x-catmask` 到 868，画框底 878（10px 内边距）；`.x-lhead` 高 48px。
+
+截图（390×844，`.shots/`，不入库）：`t14-home-rec.png` 107045 B、`t14-home-c1.png` 100522 B、`t14-category.png` 18137 B、`t14-list.png` 29787 B。
+
+
+### 14.5b 频道原位重绘后的滚动位置（补测）
+
+`chan` 动作里在 `render()` 之后回填 `document.scrollingElement.scrollTop` 与 `#c-scroll` 的 `scrollTop`，取「原位置，不超过新的最大可滚距离」，并在 `setTimeout(…, 0)` 再补一次（抵消浏览器 scroll anchoring / 二次布局）。**不会强制回顶**。
+
+```text
+初始 scrollTop=620 → 点「服饰」→ scrollTop=368（新内容最大可滚 368，贴底；不是 0）
+分类面板首个二级「全部服饰」可点 → #/c/list?catId=c1
+```
+
+> 取证方式注意：`tools/cdp.js` 的 `page.click()` 会先 `scrollIntoView({block:'center'})`，会污染滚动位置（那次实测得到 272 是探针自己滚的）。要测滚动必须用 `element.click()` 走同一套 document 委托，再延时读取。
+
+### 14.6 已知失效的自检脚本（t14 起）
+
+| 脚本 | 失效原因 | 处理 |
+| --- | --- | --- |
+| `.shots/t9-check.js` | 断言首页存在 `.x-sbtn`（橙色「搜索」按钮），t14 已按需求删除该按钮 | 不再作为回归门禁；t14 之后以 `tools/scan.js` + `tools/r1.js` + `.shots/t14-check.js` 为准 |
+| `.shots/t10-audit.js` | 同上，含 `.x-sbtn` 存在性断言 | 同上 |
+
+`tools/**` 下的正式回归脚本（`scan.js` / `r1.js` / `fix-check.js` / `store-fix-check.js` / `seed-check.js`）**不依赖 `.x-sbtn`**，t14 后仍全绿。
+
+## 15. V-01 修复：宽屏抽屉按「手机画框」而非「视口」定高（t16）
+
+**结论来源**：`VERIFY-UI-v4.md` 只有 2 条 low，`V-02`（分类屏无返回键）是 captain 定下的交互口径（抽屉里再塞 48px 返回栏头重，`×` 与遮罩都能关），按「基线替换」处理、**不改代码**；`V-01` 修掉。
+
+### 15.1 问题
+
+窄屏（≤640px）是整页滚动、视口≈画框，`.x-catpanel{height:56vh}`（`theme.css:997`）合理；宽屏手机变成固定画框 `.phone`（`theme.css:86-93`，`min-height:800px`、`max-height:calc(100vh-100px)`），此时 `56vh` 按**视口**算：1200×900 下 = 504px，占 800px 画框的 **63.0%**，下半屏遮罩只剩 276px——和窄屏 56% 不一致。
+
+### 15.2 落点（`theme.css:1048-1057`，文件末尾 append，未改任何既有媒体查询）
+
+```css
+@media (min-width: 641px) {
+  .x-catpanel { height: 448px; max-height: 56vh; }
+}
+```
+
+`448 = 800 × 0.56`，即画框高度的 56%；`max-height: 56vh` 兜底，防止极矮视口下面板比窗口还高。
+
+> 试过 t15 建议的 `height: 56%`：**不可行**——`.c-page` 的高度是 `min-height:100%`（非确定高度），百分比会退化成按内容算，实测 3 个视口都只有 295px（占画框 36.9%）。所以用定值 + 兜底。
+
+### 15.3 三视口实测（`.shots/t16-check.js`，全部真实渲染）
+
+| 视口 | 画框 `.phone` | 面板 `.x-catpanel` | 面板/画框 | 遮罩 | 结果 |
+| --- | --- | --- | --- | --- | --- |
+| 1200×900 | 800（78..878） | **448**（88..536） | **0.560** | 332（536..868） | 11 passed / 0 failed |
+| 390×844 | 792（52..844） | 473 = 56vh | 0.597（按视口 0.560） | 319（525..844） | 10 passed / 0 failed |
+| 1200×760 | 800（78..878） | 426 = 56vh 兜底 | 0.532 | 354（514..868） | 10 passed / 0 failed |
+
+- 遮罩按**画框内容高**算：`.phone` 有 10px 内边距，可用内容高是 780（88..868），所以是 `780-448=332`，不是 `800-448=352`；遮罩铺到 `.c-page` 底部（868），不是 `.phone` 底部。
+- 1200×760 的兜底：`max-height:56vh` = 425.6 → 426。captain 预估的「画框 660」不会出现——`.phone{min-height:800px}` 与 `max-height:calc(100vh-100px)=660` 冲突时 **min 胜出**，画框仍是 800，所以实际占比 53.2%（不是 64%）；面板仍在画框内、无溢出。
+- 1200×1000（补充观测）：画框长到 882，定值 448 → 50.8%，略低于 56%；这是「定值 vs 画框随视口长高」的固有偏差，V-01 的验收视口是 1200×900，此处未再引入 JS 计算。
+- 抽屉交互未受影响：左栏切换 → `#/c/category?catId=c2`、点子类 → `#/c/list?catId=c21`、点遮罩/`×` → `#/c/home`；运行期无异常、无 console.error。
+- 像素抽检：面板区 `rgb(254,254,254)`（白）、遮罩区 `rgb(141..152)`（暗）；截图 `.shots/t16-cat-1200x900.png` 31871B、`t16-cat-390x844.png` 17755B、`t16-cat-1200x760.png` 27797B。
+
+### 15.4 回归（改后真实输出）
+
+```text
+node --check assets/{store,ui,app,thumbs,admin-screens}.js → 5/5 OK
+node tools/scan.js                        → 31 路由：空屏 0 / 可疑文案 0 / 横向溢出 0
+CDP_VIEWPORT=390x844 node tools/scan.js   → 同上全绿
+node tools/r1.js                          → 15/15（console.error=0、未捕获异常=0）
+node tools/fix-check.js                   → 7/7
+node tools/store-fix-check.js             → PASS 22 / FAIL 0
+node tools/seed-check.js                  → 未付款 3（可付 2 / 超时 1）
+```
+
+`VERIFY-UI-v4.md` 未改（验收报告保持原样），`store.js`/`ui.js`/`thumbs.js`/`index.html`/`tools/**` 未动，未 git 提交。
