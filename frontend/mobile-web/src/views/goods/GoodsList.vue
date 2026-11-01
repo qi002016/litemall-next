@@ -17,9 +17,6 @@
       <div v-if="swapped" class="tiny mt6" style="color: var(--warn)">
         价格区间上下限已自动交换（BR-SEARCH-05）
       </div>
-      <div v-if="sort === 'sales'" class="tiny mt6 dim">
-        销量排序在 R1 商品接口未开放，当前按综合排序展示
-      </div>
     </div>
 
     <div class="x-listbar">
@@ -32,7 +29,7 @@
           :class="{ on: isSortOn(s.key) }"
           @click="pickSort(s.key)"
         >
-          {{ s.label }}{{ s.key === 'price' ? (sort === 'priceDesc' ? ' ↓' : sort === 'priceAsc' ? ' ↑' : '') : '' }}
+          {{ s.label }}{{ s.key === 'price' ? (sort === 'price_desc' ? ' ↓' : sort === 'price_asc' ? ' ↑' : '') : '' }}
         </button>
         <button type="button" class="x-chip" :class="{ on: onlyStock }" @click="toggleStock">仅看有货</button>
       </div>
@@ -46,6 +43,14 @@
       <div v-if="list.length" class="goods-grid">
         <GoodsCard v-for="g in list" :key="g.id" :g="g" @click="openGoods(g.id)" />
       </div>
+      <EmptyState
+        v-else-if="!loading && loadError"
+        icon="warn"
+        title="搜索失败，请重试"
+        hint="网络或服务异常，不展示空列表（BR-SEARCH-06）"
+        action="重试"
+        @action="load(true)"
+      />
       <EmptyState
         v-else-if="!loading"
         icon="search"
@@ -148,7 +153,6 @@ import { brandList, categoryTree, goodsList } from '@/api/goods'
 
 const SORTS = [
   { key: 'default', label: '综合' },
-  { key: 'sales', label: '销量' },
   { key: 'price', label: '价格' },
   { key: 'new', label: '上新' },
 ]
@@ -172,6 +176,7 @@ const pageNum = ref(1)
 const loading = ref(false)
 const loadingMore = ref(false)
 const hasMore = ref(false)
+const loadError = ref(false)
 
 const cats = ref([])
 const brands = ref([])
@@ -183,9 +188,16 @@ const draft = reactive({ min: '', max: '', categoryId: '', brandId: '', onlyStoc
 
 const kw = computed(() => String(route.query.kw || ''))
 const onlyStock = computed(() => String(route.query.onlyStock || '') === '1')
+/**
+ * 排序入参按 08/05 冻结口径：sort=price_asc|price_desc|new，缺省=综合。
+ * 兼容历史链接的 priceAsc/priceDesc/newest 别名（CI-31 后端本身也兼容），URL 里统一写契约值。
+ */
+const SORT_ALIAS = { priceasc: 'price_asc', pricedesc: 'price_desc', newest: 'new' }
+const SORT_KEYS = ['price_asc', 'price_desc', 'new']
 const sort = computed(() => {
-  const s = String(route.query.sort || 'default')
-  return ['default', 'sales', 'priceAsc', 'priceDesc', 'new'].includes(s) ? s : 'default'
+  const raw = String(route.query.sort || '').trim()
+  const s = SORT_ALIAS[raw.toLowerCase()] || raw
+  return SORT_KEYS.includes(s) ? s : 'default'
 })
 const categoryId = computed(() => String(route.query.categoryId || route.query.catId || ''))
 const brandId = computed(() => String(route.query.brandId || ''))
@@ -235,13 +247,18 @@ const filterCount = computed(() => {
 })
 
 function isSortOn(key) {
-  if (key === 'price') return sort.value === 'priceAsc' || sort.value === 'priceDesc'
+  if (key === 'price') return sort.value === 'price_asc' || sort.value === 'price_desc'
+  if (key === 'default') return sort.value === 'default'
   return sort.value === key
 }
 
 function pickSort(key) {
-  const next = key === 'price' ? (sort.value === 'priceAsc' ? 'priceDesc' : 'priceAsc') : key
-  pushQuery({ sort: next === 'default' ? undefined : next })
+  // 价格：升 → 降 → 升 循环；综合：清掉 sort 回默认序
+  let next
+  if (key === 'price') next = sort.value === 'price_asc' ? 'price_desc' : 'price_asc'
+  else if (key === 'default') next = ''
+  else next = key
+  pushQuery({ sort: next || undefined })
 }
 
 function toggleStock() {
@@ -282,14 +299,14 @@ function buildParams(page) {
   if (minP !== undefined && minP !== '') p.minP = Number(minP)
   if (maxP !== undefined && maxP !== '') p.maxP = Number(maxP)
   const s = sort.value
-  if (s === 'priceAsc' || s === 'priceDesc') p.sort = s === 'priceAsc' ? 'price_asc' : 'price_desc'
-  else if (s === 'new') p.sort = 'new'
+  if (s !== 'default') p.sort = s
   return p
 }
 
 async function load(reset = true) {
   if (reset) {
     loading.value = true
+    loadError.value = false
     pageNum.value = 1
   } else {
     loadingMore.value = true
@@ -303,9 +320,11 @@ async function load(reset = true) {
     pageNum.value = reset ? 1 : pageNum.value + 1
     hasMore.value = list.value.length < total.value && rows.length > 0
   } catch {
+    // 失败不等于「没有结果」：单独标记，避免把异常渲染成空列表（BR-SEARCH-06）
     if (reset) {
       list.value = []
       total.value = 0
+      loadError.value = true
     }
     hasMore.value = false
   } finally {
@@ -371,8 +390,7 @@ function draftParams(page) {
   if (draft.min !== '' && isFinite(minY)) p.minP = Math.round(minY * 100)
   if (draft.max !== '' && isFinite(maxY)) p.maxP = Math.round(maxY * 100)
   const s = sort.value
-  if (s === 'priceAsc' || s === 'priceDesc') p.sort = s === 'priceAsc' ? 'price_asc' : 'price_desc'
-  else if (s === 'new') p.sort = 'new'
+  if (s !== 'default') p.sort = s
   return p
 }
 

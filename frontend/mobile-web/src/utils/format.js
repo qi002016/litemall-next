@@ -11,6 +11,16 @@ export function money(cent) {
   return '¥' + yuan(cent)
 }
 
+/** 分 → 元字符串（强制两位小数，价格/金额展示统一口径：整数分 → ¥0.00） */
+export function yuan2(cent) {
+  return (Math.round(Number(cent) || 0) / 100).toFixed(2)
+}
+
+/** 分 → 带符号金额（强制两位小数），如 ¥12.50 */
+export function money2(cent) {
+  return '¥' + yuan2(cent)
+}
+
 const pad = (n) => String(n).padStart(2, '0')
 
 function toDate(ts) {
@@ -82,4 +92,4 @@ export function uuid() {
   })
 }
 
-export default { yuan, money, time, clock, fromNow, countdown, countdownLong, uuid }
+export default { yuan, money, yuan2, money2, time, clock, fromNow, countdown, countdownLong, uuid }

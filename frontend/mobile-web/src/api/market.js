@@ -6,8 +6,9 @@ export const adList = (params) => request({ url: '/app/market/ad/list', method: 
 // 可领优惠券 GET /app/market/coupon/list
 export const couponList = (params) => request({ url: '/app/market/coupon/list', method: 'get', params })
 
-// 领取优惠券 POST /app/market/coupon/receive（R2 开放）
-export const couponReceive = (data) => request({ url: '/app/market/coupon/receive', method: 'post', data })
+// 领取优惠券 POST /app/market/coupon/receive（R2 开放；CI-54 四态：成功 200 / 其余 code≠200 且 data 仍带 result）
+export const couponReceive = (data, config = {}) =>
+  request({ url: '/app/market/coupon/receive', method: 'post', data, ...config })
 
 // 我的优惠券 GET /app/market/coupon/mylist
 export const couponMyList = (params) => request({ url: '/app/market/coupon/mylist', method: 'get', params })

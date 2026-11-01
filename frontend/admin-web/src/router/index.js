@@ -33,6 +33,18 @@ const routes = [
         meta: { title: '商品与规格', icon: 'Goods' },
       },
       {
+        path: 'category',
+        name: 'Category',
+        component: () => import('@/views/goods/CategoryList.vue'),
+        meta: { title: '分类管理', icon: 'PriceTag' },
+      },
+      {
+        path: 'brand',
+        name: 'Brand',
+        component: () => import('@/views/goods/BrandList.vue'),
+        meta: { title: '品牌管理', icon: 'Collection' },
+      },
+      {
         path: 'stock',
         name: 'Stock',
         component: () => import('@/views/stock/StockList.vue'),
@@ -43,6 +55,18 @@ const routes = [
         name: 'Comment',
         component: () => import('@/views/comment/CommentList.vue'),
         meta: { title: '评价管理', icon: 'ChatDotRound' },
+      },
+      {
+        path: 'notice',
+        name: 'Notice',
+        component: () => import('@/views/marketing/NoticeList.vue'),
+        meta: { title: '公告管理', icon: 'Bell' },
+      },
+      {
+        path: 'account',
+        name: 'Account',
+        component: () => import('@/views/system/AccountList.vue'),
+        meta: { title: '账号管理', icon: 'User' },
       },
     ],
   },

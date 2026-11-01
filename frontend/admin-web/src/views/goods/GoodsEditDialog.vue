@@ -147,7 +147,8 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { brandList, categoryTree, goodsCreate, goodsDetail, goodsUpdate } from '@/api/goods'
+import { goodsCreate, goodsDetail, goodsUpdate } from '@/api/goods'
+import { adminBrandPage, adminCategoryTree } from '@/api/catalog'
 import { fen2yuan, yuan2fen } from '@/utils/format'
 import ImageUpload from '@/components/ImageUpload.vue'
 
@@ -225,9 +226,11 @@ const onOpen = async () => {
   reset()
   loading.value = true
   try {
+    // 必须用 admin 端点：C 端 /app/goods/category 只返回「自身或子分类下存在在售商品」的分类，
+    // 后台刚建好、还没有商品的分类（验收 §6.2 第 1→2 步）会选不到。
     const [tree, brandPage] = await Promise.allSettled([
-      categoryTree(),
-      brandList({ pageNum: 1, pageSize: 100 }),
+      adminCategoryTree({ withGoodsCount: false }),
+      adminBrandPage({ pageNum: 1, pageSize: 100 }),
     ])
     if (tree.status === 'fulfilled') categories.value = tree.value || []
     if (brandPage.status === 'fulfilled') brands.value = brandPage.value?.list || []

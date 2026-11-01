@@ -58,18 +58,22 @@ const workbench = useWorkbenchStore()
 
 /**
  * 导航与 prototype/assets/app.js:ADMIN_NAV 对齐。
- * R1 接入 6 屏；分类与品牌 / 优惠券 / 演示工具属 R2/R3，保留灰置入口。
+ * R1 接入 6 屏；R2-09 接入分类管理 / 品牌管理 / 公告管理 / 账号管理；
+ * 优惠券 / 演示工具属 R2 之后，保留灰置入口。
  */
 const menus = [
   { key: 'dashboard', label: '工作台', icon: 'Odometer', path: '/dashboard' },
   { key: 'order', label: '订单管理', icon: 'Tickets', path: '/order' },
   { key: 'aftersale', label: '售后处理', icon: 'Refresh', path: '/aftersale', badge: true },
   { key: 'goods', label: '商品与规格', icon: 'Goods', path: '/goods' },
-  { key: 'catalog', label: '分类与品牌', icon: 'PriceTag', disabled: true, tip: '分类与品牌管理属 R2（CN-21~28），暂未接入' },
+  { key: 'category', label: '分类管理', icon: 'PriceTag', path: '/category' },
+  { key: 'brand', label: '品牌管理', icon: 'Collection', path: '/brand' },
   { key: 'stock', label: '库存视图', icon: 'Grid', path: '/stock' },
-  { key: 'coupon', label: '优惠券', icon: 'Ticket', disabled: true, tip: '优惠券管理属 R2，暂未接入' },
+  { key: 'coupon', label: '优惠券', icon: 'Ticket', disabled: true, tip: '优惠券管理属 R2 后续，暂未接入' },
   { key: 'comment', label: '评价管理', icon: 'ChatDotRound', path: '/comment' },
-  { key: 'demo', label: '演示工具', icon: 'Setting', disabled: true, tip: '原型演示工具不进入生产后台（R2/R3）' },
+  { key: 'notice', label: '公告管理', icon: 'Bell', path: '/notice' },
+  { key: 'account', label: '账号管理', icon: 'User', path: '/account' },
+  { key: 'demo', label: '演示工具', icon: 'Setting', disabled: true, tip: '原型演示工具不进入生产后台（R3）' },
 ]
 
 const isActive = (m) => route.path === m.path || route.path.startsWith(`${m.path}/`)

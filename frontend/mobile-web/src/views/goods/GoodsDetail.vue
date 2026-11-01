@@ -115,25 +115,57 @@
             </template>
 
             <template v-else>
-              <div v-if="reviews.length">
-                <div class="row between" style="margin-bottom: 8px">
-                  <div class="bold">{{ rateAvg }} 分</div>
-                  <div class="tiny dim">{{ commentTotal }} 条评价</div>
-                </div>
-                <div v-for="(r, i) in reviews" :key="i" style="padding: 10px 0; border-bottom: 1px solid var(--line)">
+              <div class="row between" style="margin-bottom: 8px">
+                <div class="bold">{{ rateAvg }} 分</div>
+                <div class="tiny dim">{{ commentTotal }} 条评价</div>
+              </div>
+              <template v-if="reviews.length">
+                <div v-for="r in reviews" :key="r.id" style="padding: 10px 0; border-bottom: 1px solid var(--line)">
                   <div class="row between">
-                    <div class="small bold">{{ r.nickname || r.user || '匿名用户' }}</div>
-                    <div class="tiny dim">{{ fromNow(r.addTime || r.at) }}</div>
+                    <div class="row" style="gap: 6px; min-width: 0">
+                      <img
+                        v-if="r.avatar"
+                        :src="mediaUrl(r.avatar)"
+                        alt=""
+                        style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex: none"
+                      />
+                      <div class="small bold ellipsis">{{ r.nickname || '匿名用户' }}</div>
+                    </div>
+                    <div class="tiny dim" style="flex: none">{{ r.addTime || '—' }}</div>
                   </div>
                   <div class="stars" style="margin: 4px 0">
-                    <span v-for="n in 5" :key="n" :class="{ off: n > Number(r.rate || 5) }">★</span>
+                    <span v-for="n in 5" :key="n" :class="{ off: n > Number(r.star || 5) }">★</span>
+                    <span class="tiny dim" style="margin-left: 6px">{{ Number(r.star || 5) }} 分</span>
                   </div>
-                  <div class="small" style="color: var(--text-2)">{{ r.content }}</div>
-                  <div v-if="r.reply" class="tiny mt6" style="background: #f7f8fa; padding: 6px 8px; border-radius: 8px">
-                    商家回复：{{ r.reply }}
+                  <div class="small" style="color: var(--text-2); white-space: pre-wrap">
+                    {{ r.content || '该用户没有填写评价内容' }}
+                  </div>
+                  <div v-if="r.picUrls && r.picUrls.length" class="row mt6" style="gap: 6px; flex-wrap: wrap">
+                    <img
+                      v-for="(p, pi) in r.picUrls"
+                      :key="pi"
+                      :src="mediaUrl(p)"
+                      alt=""
+                      style="width: 64px; height: 64px; border-radius: 8px; object-fit: cover"
+                    />
+                  </div>
+                  <div v-if="r.adminContent" class="tiny mt6" style="background: #f7f8fa; padding: 6px 8px; border-radius: 8px">
+                    <div style="color: var(--text-2)">商家回复：{{ r.adminContent }}</div>
+                    <div v-if="r.replyTime" class="dim mt6">{{ r.replyTime }}</div>
                   </div>
                 </div>
-              </div>
+                <button
+                  v-if="reviewHasMore"
+                  type="button"
+                  class="btn sm ghost mt8"
+                  :disabled="reviewLoading"
+                  @click="loadReviews(route.params.id, false)"
+                >
+                  {{ reviewLoading ? '加载中…' : '加载更多评价' }}
+                </button>
+                <div v-else class="tiny dim center mt8">已经到底了</div>
+              </template>
+              <div v-else-if="reviewLoading" class="loading-more">加载中…</div>
               <EmptyState v-else icon="comment" title="还没有评价" hint="确认收货后可以来评价" />
             </template>
           </div>
@@ -175,7 +207,7 @@ import { cartAdd } from '@/api/cart'
 import { useAppStore } from '@/store/app'
 import { setBuyNow } from '@/store/checkout'
 import { toast } from '@/utils/toast'
-import { fromNow, yuan } from '@/utils/format'
+import { yuan } from '@/utils/format'
 import { mediaUrl } from '@/utils/media'
 
 const route = useRoute()
@@ -191,6 +223,10 @@ const qty = ref(1)
 const sel = reactive({})
 const reviews = ref([])
 const commentTotal = ref(0)
+const reviewPage = ref(0)
+const reviewLoading = ref(false)
+const reviewHasMore = ref(false)
+const REVIEW_PAGE_SIZE = 10
 
 const specSaveKey = computed(() => `hm:sel:${route.params.id}`)
 
@@ -242,7 +278,7 @@ const maxQty = computed(() => Math.max(1, Number(sku.value?.sellable ?? sku.valu
 
 const rateAvg = computed(() => {
   if (!reviews.value.length) return '—'
-  const sum = reviews.value.reduce((a, r) => a + Number(r.rate || 5), 0)
+  const sum = reviews.value.reduce((a, r) => a + Number(r.star || 5), 0)
   return (sum / reviews.value.length).toFixed(1)
 })
 
@@ -342,14 +378,28 @@ function goBack() {
   else router.push('/home')
 }
 
-async function loadReviews(goodsId) {
+/**
+ * CI-35：只返回未隐藏评价（status=0），total 同口径；分页 1/20/上限 100。
+ * 评价数随「加载更多」保持为后端 total，隐藏后自然回落（BR-CM-04）。
+ */
+async function loadReviews(goodsId, reset = true) {
+  if (reviewLoading.value) return
+  reviewLoading.value = true
+  const page = reset ? 1 : reviewPage.value + 1
   try {
-    const data = await commentList({ goodsId, pageNum: 1, pageSize: 10 })
-    reviews.value = data?.list || (Array.isArray(data) ? data : [])
+    const data = await commentList({ goodsId, pageNum: page, pageSize: REVIEW_PAGE_SIZE })
+    const rows = data?.list || (Array.isArray(data) ? data : [])
+    reviews.value = reset ? rows : reviews.value.concat(rows)
+    reviewPage.value = page
     commentTotal.value = Number(data?.total ?? reviews.value.length)
+    reviewHasMore.value = reviews.value.length < commentTotal.value && rows.length > 0
   } catch {
-    reviews.value = []
-    commentTotal.value = 0
+    if (reset) {
+      reviews.value = []
+      reviewHasMore.value = false
+    }
+  } finally {
+    reviewLoading.value = false
   }
 }
 

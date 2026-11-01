@@ -66,6 +66,11 @@
                 </div>
               </div>
               <div class="row" style="justify-content: flex-end; gap: 6px; padding: 8px 0; flex-wrap: wrap">
+                <!-- R2 CI-36：只有已收货/已完成且该行未评价、未退款时才出现「评价」；提交后变「已评价」 -->
+                <button v-if="commentStateOf(l) === 'todo'" type="button" class="btn sm primary" @click="goReview(l)">
+                  评价
+                </button>
+                <span v-else-if="commentStateOf(l) === 'done'" class="tiny dim">已评价</span>
                 <button v-if="l.aftersaleId" type="button" class="btn sm ghost" @click="router.push(`/aftersale/${l.aftersaleId}`)">
                   查看售后
                 </button>
@@ -246,6 +251,30 @@ function applyAftersale(l) {
     path: '/aftersale/apply',
     query: { orderId: o.value.orderId, orderGoodsId: l.orderGoodsId },
   })
+}
+
+/** CI-36：commentStatus 只在 goodsList(OrderGoodsVO) 上，按 orderGoodsId 映射到 lines */
+const commentMap = computed(() => {
+  const m = {}
+  for (const g of o.value?.goodsList || []) m[String(g.orderGoodsId)] = Number(g.commentStatus ?? -1)
+  return m
+})
+
+const evaluableOrder = computed(() => stateKey.value === 'confirmed' || stateKey.value === 'completed')
+
+function commentStateOf(l) {
+  if (!evaluableOrder.value) return ''
+  if (Number(l.refundStatus) === 2) return ''
+  const num = Number(l.number || 0)
+  if (num > 0 && Number(l.refundedNumber || 0) >= num) return ''
+  const cs = commentMap.value[String(l.orderGoodsId)]
+  if (cs > 0) return 'done'
+  if (cs === 0) return 'todo'
+  return ''
+}
+
+function goReview(l) {
+  router.push({ path: '/review', query: { orderId: o.value.orderId, orderGoodsId: l.orderGoodsId } })
 }
 
 function tick() {

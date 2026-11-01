@@ -34,6 +34,8 @@ service.interceptors.response.use(
     }
     const code = res && res.code
     const msg = (res && res.msg) || '请求失败'
+    // 允许调用方用 config.silent 抑制默认错误 toast（如 CI-54 领券要按四态给不同文案）
+    const silent = !!(response.config && response.config.silent)
     if (code === 401) {
       const userStore = useUserStore()
       userStore.logout()
@@ -41,11 +43,12 @@ service.interceptors.response.use(
       toLogin()
       return Promise.reject(Object.assign(new Error(msg), { code, data: res && res.data }))
     }
-    toast(msg, 'err')
+    if (!silent) toast(msg, 'err')
     return Promise.reject(Object.assign(new Error(msg), { code, data: res && res.data }))
   },
   (error) => {
     const { response } = error
+    const silent = !!(error.config && error.config.silent)
     if (response) {
       const res = response.data || {}
       if (response.status === 401) {
@@ -53,9 +56,9 @@ service.interceptors.response.use(
         userStore.logout()
         toast('请先登录', 'err')
         toLogin()
-      } else if (response.status === 403) {
+      } else if (!silent && response.status === 403) {
         toast(res.msg || '无权访问该功能', 'err')
-      } else {
+      } else if (!silent) {
         toast(res.msg || `请求失败(${response.status})`, 'err')
       }
       return Promise.reject(
@@ -65,7 +68,7 @@ service.interceptors.response.use(
         })
       )
     }
-    toast('网络异常，请稍后重试', 'err')
+    if (!silent) toast('网络异常，请稍后重试', 'err')
     return Promise.reject(error)
   }
 )

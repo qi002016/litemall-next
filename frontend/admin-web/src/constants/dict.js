@@ -109,13 +109,40 @@ export const GOODS_TABS = [
   { value: '0', label: '草稿' },
 ]
 
-/** 评价回复状态 */
+/** 评价回复状态（R2-09：去掉「低分」页签，低分改由星级多选筛选实现） */
 export const COMMENT_REPLY_TABS = [
   { value: '', label: '全部' },
-  { value: 'low', label: '低分（≤3 星）' },
   { value: 'unreplied', label: '待回复' },
   { value: 'replied', label: '已回复' },
 ]
+
+/** 评价可见状态（CN-30/31：0 显示 / 1 隐藏） */
+export const COMMENT_STATUS = {
+  0: { text: '显示', tone: 'ok' },
+  1: { text: '已隐藏', tone: 'danger' },
+}
+
+/** 评价可见状态筛选页签 */
+export const COMMENT_VISIBLE_TABS = [
+  { value: '', label: '全部' },
+  { value: '0', label: '显示中' },
+  { value: '1', label: '已隐藏' },
+]
+
+/** 星级筛选项（多选，后端 star=1,2,3 逗号多值） */
+export const COMMENT_STAR_OPTIONS = [
+  { value: '5', label: '5 星' },
+  { value: '4', label: '4 星' },
+  { value: '3', label: '3 星' },
+  { value: '2', label: '2 星' },
+  { value: '1', label: '1 星' },
+]
+
+/** 管理员账号状态（CN-37：1 启用 / 0 禁用） */
+export const ACCOUNT_STATUS = {
+  1: { text: '启用', tone: 'ok' },
+  0: { text: '禁用', tone: 'gray' },
+}
 
 /** 售后常用驳回理由（原型 AS_REASONS 的去重精简版） */
 export const AFTERSALE_REJECT_REASONS = [
@@ -175,6 +202,26 @@ export function aftersaleTypeMeta(row) {
   const hit = row && row.type != null && AFTERSALE_TYPE[row.type]
   return {
     text: (row && row.typeText) || (hit && hit.text) || '—',
+    tone: (hit && hit.tone) || 'gray',
+  }
+}
+
+/** 评价可见状态：优先用后端 statusText，缺失时按字典兜底 */
+export function commentStatusMeta(row) {
+  const raw = row && row.status != null ? String(row.status) : ''
+  const hit = COMMENT_STATUS[raw]
+  return {
+    text: (row && row.statusText) || (hit && hit.text) || raw || '—',
+    tone: (hit && hit.tone) || 'gray',
+  }
+}
+
+/** 管理员账号状态：优先用后端 statusText */
+export function accountStatusMeta(row) {
+  const raw = row && row.status != null ? String(row.status) : ''
+  const hit = ACCOUNT_STATUS[raw]
+  return {
+    text: (row && row.statusText) || (hit && hit.text) || (raw === '0' ? '禁用' : raw ? '启用' : '—'),
     tone: (hit && hit.tone) || 'gray',
   }
 }

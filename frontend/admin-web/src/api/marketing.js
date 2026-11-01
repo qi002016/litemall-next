@@ -18,5 +18,10 @@ export const topicCreate = (data) => request({ url: '/admin/market/topic/create'
 export const topicUpdate = (data) => request({ url: '/admin/market/topic/update', method: 'put', data })
 export const topicDelete = (params) => request({ url: '/admin/market/topic/delete', method: 'delete', params })
 
-// 仪表盘统计
-export const dashboardStats = () => request({ url: '/admin/dashboard/stats', method: 'get' })
+// 公告（R2-06：CN-34~36；无删除端点，停用 = enabled:false）
+export const noticePage = (params, config) => request({ url: '/admin/notice/list', method: 'get', params, ...config })
+export const noticeCreate = (data, config) => request({ url: '/admin/notice/create', method: 'post', data, ...config })
+export const noticeUpdate = (data, config) => request({ url: '/admin/notice/update', method: 'post', data, ...config })
+
+// 仪表盘统计（R2-05：CI-08，period=today|7d|30d；此处保留向后兼容，页面优先用 api/dashboard.js）
+export const dashboardStats = (params) => request({ url: '/admin/dashboard/stats', method: 'get', params })

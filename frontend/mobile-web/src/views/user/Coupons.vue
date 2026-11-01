@@ -24,18 +24,20 @@
             <div class="row between">
               <div class="grow">
                 <div class="bold" style="font-size: 14px">{{ c.name }}</div>
-                <div class="tiny dim mt6">满 {{ yuan(c.min) }} 可用 · 有效期至 {{ dateOnly(c.endTime) }}</div>
+                <div class="tiny dim mt6">满 {{ moneyOf(c.min) }} 可用 · 有效期至 {{ dateOnly(c.endTime) }}</div>
                 <div class="tiny dim mt6">
                   剩余 {{ leftOf(c) }} 张
-                  <span v-if="leftOf(c) > 0 && leftOf(c) <= 5" class="tag warn">仅剩 {{ leftOf(c) }} 张</span>
-                  <span v-if="gotIds.includes(String(c.id))" class="tag ok">已领取</span>
-                  <span v-if="c.leftCount === 0 && !gotIds.includes(String(c.id))" class="tag danger">已领完</span>
+                  <span v-if="leftOf(c) > 0 && leftOf(c) <= 5 && claimState(c) === 'claim'" class="tag warn">仅剩 {{ leftOf(c) }} 张</span>
+                  <!-- 四态标签互斥：已领取 / 已领完 / 已停发 不混用（BR-CP-02） -->
+                  <span v-if="claimState(c) === 'got'" class="tag ok">已领取</span>
+                  <span v-else-if="claimState(c) === 'full'" class="tag danger">已领完</span>
+                  <span v-else-if="claimState(c) === 'off'" class="tag gray">已停发</span>
                 </div>
                 <div v-if="c.desc" class="tiny dim mt6">{{ c.desc }}</div>
               </div>
               <div style="text-align: right">
                 <div style="color: var(--price); font-weight: 800; font-size: 22px">
-                  <span style="font-size: 13px">¥</span>{{ yuan(c.discount) }}
+                  <span style="font-size: 13px">¥</span>{{ amountOf(c.discount) }}
                 </div>
                 <button
                   type="button"
@@ -68,14 +70,14 @@
             <div class="row between">
               <div class="grow">
                 <div class="bold" style="font-size: 14px">{{ m.name }}</div>
-                <div class="tiny dim mt6">满 {{ yuan(m.min) }} 可用 · {{ dateOnly(m.endTime) }} 到期</div>
+                <div class="tiny dim mt6">满 {{ moneyOf(m.min) }} 可用 · {{ dateOnly(m.endTime) }} 到期</div>
                 <div class="mt8">
                   <span class="tag" :class="subTab === 'unused' ? 'ok' : 'gray'">{{ subTabText(subTab) }}</span>
                   <span v-if="subTab === 'unused'" class="tiny dim">下单时自动可选</span>
                 </div>
               </div>
               <div style="color: var(--price); font-weight: 800; font-size: 22px">
-                <span style="font-size: 13px">¥</span>{{ yuan(m.discount) }}
+                <span style="font-size: 13px">¥</span>{{ amountOf(m.discount) }}
               </div>
             </div>
           </div>
@@ -94,7 +96,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -115,6 +117,8 @@ const mineLoading = ref(false)
 const mineTotal = ref(0)
 const claiming = ref('')
 const mineIds = ref([])
+// CI-54 失败态：按券记录服务端 result（already_received/sold_out/disabled），保证四种文案不混用
+const failState = reactive({})
 
 const subTabs = ref([
   { key: 'unused', label: '未使用', count: 0 },
@@ -142,10 +146,12 @@ function toCent(v) {
   return Number(v) || 0
 }
 
-function yuan(v) {
-  const cent = toCent(v)
-  const n = cent / 100
-  return Number.isInteger(n) ? String(n) : n.toFixed(2)
+function amountOf(v) {
+  return (toCent(v) / 100).toFixed(2)
+}
+
+function moneyOf(v) {
+  return '¥' + amountOf(v)
 }
 
 function dateOnly(t) {
@@ -159,16 +165,24 @@ function leftOf(c) {
   return Number(c.leftCount)
 }
 
+/**
+ * CI-54 四态：success / already_received（已领过）/ sold_out（已领完）/ disabled（已停发）。
+ * 领券中心只下发可领的券（CouponVO 无 status 字段），故「已停发」只可能来自领取失败的 result，
+ * 不能靠列表字段臆断。
+ */
 function claimState(c) {
-  if (c.status === 'disabled') return 'off'
-  if (gotIds.value.includes(String(c.id))) return 'got'
+  const id = String(c.id)
+  const f = failState[id]
+  if (f === 'already_received' || gotIds.value.includes(id)) return 'got'
+  if (f === 'sold_out') return 'full'
+  if (f === 'disabled') return 'off'
   if (c.leftCount != null && Number(c.leftCount) === 0) return 'full'
   return 'claim'
 }
 
 function claimText(c) {
   if (claiming.value === String(c.id)) return '领取中…'
-  return { off: '已停用', got: '已领取', full: '已领完', claim: '立即领取' }[claimState(c)]
+  return { off: '已停发', got: '已领取', full: '已领完', claim: '立即领取' }[claimState(c)]
 }
 
 async function loadCenter() {
@@ -212,22 +226,39 @@ async function loadMine() {
 
 async function claim(c) {
   if (claimState(c) !== 'claim') return
-  claiming.value = String(c.id)
+  const id = String(c.id)
+  claiming.value = id
   try {
-    const res = await couponReceive({ couponId: String(c.id) })
-    if (res?.status === 'SUCCESS') {
-      toast('领取成功', 'ok')
-    } else if (res?.status === 'PROCESSING') {
-      toast('领取排队中，稍后可在「我的券」查看', 'ok')
+    // CI-54：成功 HTTP 200 + result=success；失败 code≠200 但 data 仍带 {result,message}。
+    // 用 silent 抑制默认 toast，按四态给出各自文案（BR-CP-02 已领过 ≠ 已领完）。
+    const res = await couponReceive({ couponId: id }, { silent: true })
+    if (res?.result === 'success') {
+      toast('领取成功，去「我的券」查看', 'ok')
+      await Promise.all([loadCenter(), loadMineIds()])
     } else {
-      toast(res?.message || '领取失败，请稍后再试', 'err')
+      applyFail(c, res?.result, res?.message)
     }
-    await Promise.all([loadCenter(), loadMineIds()])
   } catch (e) {
-    if (e?.message && !e.handled) toast(e.message, 'err')
+    applyFail(c, e?.data?.result, e?.message)
   } finally {
     claiming.value = ''
   }
+}
+
+const FAIL_TEXT = {
+  already_received: '你已领过这张券，去「我的券」查看',
+  sold_out: '这张券已领完，下次早点来',
+  disabled: '该券已停发，暂不可领取',
+}
+
+function applyFail(c, result, message) {
+  const id = String(c.id)
+  const known = Object.prototype.hasOwnProperty.call(FAIL_TEXT, result)
+  if (known) failState[id] = result
+  toast(known ? message || FAIL_TEXT[result] : message || '领取失败，请稍后再试', 'err')
+  // 只刷新对应数据，避免把「已领过」误刷新成「已领完」的展示
+  if (result === 'already_received') loadMineIds()
+  if (result === 'sold_out' || result === 'disabled') loadCenter()
 }
 
 function switchSeg(v) {
