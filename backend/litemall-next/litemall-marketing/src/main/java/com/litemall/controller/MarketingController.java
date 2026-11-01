@@ -48,9 +48,23 @@ public class MarketingController {
         return Result.ok(couponService.getCouponList(pageNum, pageSize));
     }
 
+    /**
+     * CI-54 领券（同步四态）。
+     * <p>
+     * 失败分支的 {@code data} 必须是 {@link CouponReceiveResultVO} 本身（{@code result/message}），
+     * 这是 R1 §4.1「失败 data 只允许 null 或 {@code {"errorCode"}}」的显式例外 E-1：若用抛异常表达
+     * 四态，{@code CommonExceptionAdvice} 会把 data 变成 {@code {"errorCode"}}，前端就分不清
+     * already_received / sold_out / disabled。因此这里手工构造 {@code Result}：
+     * 成功 200「领取成功」，其余三态 400 且 msg=data.message。
+     * </p>
+     */
     @PostMapping("/coupon/receive")
     public Result<CouponReceiveResultVO> receiveCoupon(@Validated @RequestBody CouponReceiveDTO dto) {
-        return Result.ok(couponService.receiveCoupon(dto.getCouponId()));
+        CouponReceiveResultVO vo = couponService.receiveCoupon(dto.getCouponId());
+        if (CouponReceiveResultVO.RESULT_SUCCESS.equals(vo.getResult())) {
+            return new Result<>(200, vo.getMessage(), vo);
+        }
+        return new Result<>(400, vo.getMessage(), vo);
     }
 
     @GetMapping("/coupon/receive/result")

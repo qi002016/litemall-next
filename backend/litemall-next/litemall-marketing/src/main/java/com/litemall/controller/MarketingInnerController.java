@@ -9,10 +9,13 @@ import com.litemall.domain.dto.AdDTO;
 import com.litemall.domain.dto.CouponCheckDTO;
 import com.litemall.domain.dto.CouponDTO;
 import com.litemall.domain.dto.CouponUseDTO;
+import com.litemall.domain.dto.NoticeAdminDTO;
+import com.litemall.domain.dto.NoticeDTO;
 import com.litemall.domain.dto.TopicDTO;
 import com.litemall.exception.BadRequestException;
 import com.litemall.service.IAdService;
 import com.litemall.service.ICouponService;
+import com.litemall.service.INoticeService;
 import com.litemall.service.ITopicService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -52,6 +55,7 @@ public class MarketingInnerController {
     private final ICouponService couponService;
     private final IAdService adService;
     private final ITopicService topicService;
+    private final INoticeService noticeService;
 
     @Operation(summary = "优惠券抵扣试算")
     @PostMapping("/coupon/check")
@@ -258,6 +262,8 @@ public class MarketingInnerController {
         topic.setReadCount(dto.getReadCount());
         topic.setPicUrl(dto.getPicUrl());
         topic.setSortOrder(dto.getSortOrder());
+        // R2：专题启停；未传默认启用（C 端只展示 enabled=true）
+        topic.setEnabled(dto.getEnabled() == null ? Boolean.TRUE : dto.getEnabled());
         topic.setDeleted(Boolean.FALSE);
         topic.setAddTime(now);
         topic.setUpdateTime(now);
@@ -278,6 +284,8 @@ public class MarketingInnerController {
         topic.setReadCount(dto.getReadCount());
         topic.setPicUrl(dto.getPicUrl());
         topic.setSortOrder(dto.getSortOrder());
+        // R2：专题启停（null 表示保持原值，updateById 忽略 null 字段）
+        topic.setEnabled(dto.getEnabled());
         topic.setUpdateTime(LocalDateTime.now());
         topicService.updateById(topic);
     }
@@ -294,6 +302,29 @@ public class MarketingInnerController {
         update.setDeleted(Boolean.TRUE);
         update.setUpdateTime(LocalDateTime.now());
         topicService.updateById(update);
+    }
+
+    /* ==================== R2：管理端公告（CN-IN-05/06/07，litemall_notice 归 marketing） ==================== */
+
+    @Operation(summary = "管理端公告分页列表（CN-IN-05）")
+    @GetMapping("/admin/notice/list")
+    public PageVO<NoticeAdminDTO> adminListNotices(@RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
+                                                   @RequestParam(value = "pageSize", defaultValue = "10") Integer pageSize,
+                                                   @RequestParam(value = "keyword", required = false) String keyword,
+                                                   @RequestParam(value = "enabled", required = false) Boolean enabled) {
+        return noticeService.getAdminNoticeList(normalizePage(pageNum), normalizeSize(pageSize), keyword, enabled);
+    }
+
+    @Operation(summary = "管理端新建公告（CN-IN-06）")
+    @PostMapping("/admin/notice/create")
+    public Long adminCreateNotice(@RequestBody NoticeDTO dto) {
+        return noticeService.createNotice(dto);
+    }
+
+    @Operation(summary = "管理端编辑/启停公告（CN-IN-07）")
+    @PostMapping("/admin/notice/update")
+    public Long adminUpdateNotice(@RequestBody NoticeDTO dto) {
+        return noticeService.updateNotice(dto);
     }
 
     /* ==================== 私有方法 ==================== */
@@ -398,6 +429,7 @@ public class MarketingInnerController {
         dto.setReadCount(topic.getReadCount());
         dto.setPicUrl(topic.getPicUrl());
         dto.setSortOrder(topic.getSortOrder());
+        dto.setEnabled(topic.getEnabled());
         dto.setAddTime(topic.getAddTime());
         dto.setUpdateTime(topic.getUpdateTime());
         dto.setDeleted(topic.getDeleted());

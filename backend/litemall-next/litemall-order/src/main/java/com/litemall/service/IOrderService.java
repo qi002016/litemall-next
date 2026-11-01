@@ -17,6 +17,8 @@ import com.litemall.domain.dto.OrderAdminStatsDTO;
 import com.litemall.domain.dto.OrderCloseDTO;
 import com.litemall.domain.dto.OrderGoodsStatusDTO;
 import com.litemall.domain.dto.OrderShipDTO;
+import com.litemall.domain.dto.OrderTryCompleteDTO;
+import com.litemall.domain.dto.OrderTryCompleteResultDTO;
 import com.litemall.domain.dto.PaySuccessDTO;
 import com.litemall.domain.dto.PaySuccessResultDTO;
 
@@ -117,11 +119,18 @@ public interface IOrderService extends IService<Order> {
     OrderAdminDetailDTO adminOrderDetail(Long id);
 
     /**
-     * CI-100 管理端首页统计（R1 不改）。
+     * CI-100 管理端订单统计（R2 改契约：新增统计期入参，出参只增字段）。
+     * <p>
+     * 口径见 05-R2 实施口径 §2.1.3（SQL-1..SQL-5 逐字冻结）：GMV/订单数按 {@code pay_time}
+     * 归期且 {@code order_status NOT IN (101,103)}；退款按 {@code litemall_refund.refund_time}、
+     * {@code status=1}；{@code waitShipCount}/{@code pendingAftersaleCount} 为当前存量；
+     * {@code todayOrders} 为今日支付成功订单数（不随统计期变化）。
+     * </p>
      *
-     * @return 今日订单数 + 待发货订单数
+     * @param period 统计期 {@code today|7d|30d}，可空；缺省/非法一律落 {@code 30d}（不报错）
+     * @return 统计值（金额为整数分）
      */
-    OrderAdminStatsDTO adminOrderStats();
+    OrderAdminStatsDTO adminOrderStats(String period);
 
     /**
      * CI-101 管理端发货：102 → 201（CAS），重复发货 409。
@@ -171,6 +180,20 @@ public interface IOrderService extends IService<Order> {
      * @return 行状态
      */
     OrderGoodsStatusDTO orderGoodsStatus(Long id, Long userId);
+
+    /**
+     * CN-IN-08 订单尝试完成（R2 新增；goods 域 CI-36 评价落库后调用）。
+     * <p>
+     * 幂等语义：先标记订单行已评价，再按三条件 CAS {@code 301 → 501}；
+     * 重复调用或已非 301 ⇒ {@code changed=false} + 200（不报 409）。
+     * 未发货/未收货等非 301 状态一律不做跃迁（不允许跨状态跳 501）。
+     * </p>
+     *
+     * @param orderId 订单ID（路径参数）
+     * @param dto     订单行ID + 评价ID（均必填）
+     * @return 订单ID + 回读状态 + 是否发生跃迁
+     */
+    OrderTryCompleteResultDTO tryCompleteOrder(Long orderId, OrderTryCompleteDTO dto);
 
     /**
      * CN-IN-04 查询 SKU 锁定量（{@code order_status=101 AND og.deleted=0} 的 number 之和）。

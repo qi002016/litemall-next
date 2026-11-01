@@ -17,6 +17,8 @@ import com.litemall.domain.dto.OrderAdminStatsDTO;
 import com.litemall.domain.dto.OrderCloseDTO;
 import com.litemall.domain.dto.OrderShipDTO;
 import com.litemall.exception.BadRequestException;
+import com.litemall.service.DashboardService;
+import com.litemall.support.LogErrorCounter;
 import com.litemall.utils.UserContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -26,6 +28,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -252,21 +255,28 @@ class AdminOrderFeignTest {
     }
 
     @Test
-    @DisplayName("H5：/admin/dashboard/stats 分别取 order/goods/user 三个域的 inner 统计")
+    @DisplayName("R2（CI-08）：/admin/dashboard/stats 聚合 order/goods/user 三域，缺省 period=30d")
     void dashboardAggregatesThreeDomains() {
         GoodsClient goodsClient = mock(GoodsClient.class);
         UserClient userClient = mock(UserClient.class);
-        when(orderClient.adminOrderStats()).thenReturn(stats(5L, 3L));
+        LogErrorCounter logErrorCounter = mock(LogErrorCounter.class);
+        when(orderClient.adminOrderStats("30d")).thenReturn(stats(5L, 3L));
         when(goodsClient.adminCountGoods()).thenReturn(20L);
         when(userClient.adminCountUsers()).thenReturn(30L);
+        when(logErrorCounter.todayCount()).thenReturn(0L);
 
-        DashboardController dashboard = new DashboardController(goodsClient, orderClient, userClient);
-        Result<DashboardStatsVO> result = dashboard.stats();
+        DashboardController dashboard = new DashboardController(
+                new DashboardService(goodsClient, orderClient, userClient, logErrorCounter));
+        Result<DashboardStatsVO> result = dashboard.stats(null);
 
+        assertThat(result.getData().getPeriod()).isEqualTo("30d");
         assertThat(result.getData().getGoodsTotal()).isEqualTo(20L);
         assertThat(result.getData().getUserTotal()).isEqualTo(30L);
         assertThat(result.getData().getTodayOrders()).isEqualTo(5L);
         assertThat(result.getData().getUndelivered()).isEqualTo(3L);
+        assertThat(result.getData().getUnavailable()).isEmpty();
+        // trend 必须补满 30 个自然日（§1.6）
+        assertThat(result.getData().getTrend()).hasSize(30);
     }
 
     private OrderAdminDTO orderRow(Long id, String orderSn, LocalDateTime addTime) {
@@ -279,8 +289,17 @@ class AdminOrderFeignTest {
 
     private OrderAdminStatsDTO stats(Long todayOrders, Long undelivered) {
         OrderAdminStatsDTO dto = new OrderAdminStatsDTO();
+        dto.setPeriod("30d");
         dto.setTodayOrders(todayOrders);
         dto.setUndelivered(undelivered);
+        dto.setWaitShipCount(undelivered);
+        dto.setPendingAftersaleCount(1L);
+        dto.setGmv(new BigDecimal("128800"));
+        dto.setOrderCount(12L);
+        dto.setRefundCount(1L);
+        dto.setRefundAmount(new BigDecimal("12900"));
+        dto.setTop5(Collections.emptyList());
+        dto.setTrend(Collections.emptyList());
         return dto;
     }
 }

@@ -14,6 +14,7 @@ import com.litemall.constant.AftersaleStatus;
 import com.litemall.constant.OrderStatus;
 import com.litemall.constant.RedisKeys;
 import com.litemall.domain.DTO.OrderConfirmDTO;
+import com.litemall.domain.DTO.OrderStatsAggregates;
 import com.litemall.domain.DTO.OrderSubmitDTO;
 import com.litemall.domain.PO.Aftersale;
 import com.litemall.domain.PO.Cart;
@@ -43,6 +44,8 @@ import com.litemall.domain.dto.OrderAdminStatsDTO;
 import com.litemall.domain.dto.OrderCloseDTO;
 import com.litemall.domain.dto.OrderGoodsStatusDTO;
 import com.litemall.domain.dto.OrderShipDTO;
+import com.litemall.domain.dto.OrderTryCompleteDTO;
+import com.litemall.domain.dto.OrderTryCompleteResultDTO;
 import com.litemall.domain.dto.PaySuccessDTO;
 import com.litemall.domain.dto.PaySuccessResultDTO;
 import com.litemall.domain.dto.StockChangeDTO;
@@ -55,9 +58,11 @@ import com.litemall.mapper.CartMapper;
 import com.litemall.mapper.OrderGoodsMapper;
 import com.litemall.mapper.OrderLogMapper;
 import com.litemall.mapper.OrderMapper;
+import com.litemall.mapper.OrderStatsMapper;
 import com.litemall.service.IOrderService;
 import com.litemall.support.Money;
 import com.litemall.support.OrderRules;
+import com.litemall.support.StatsPeriod;
 import com.litemall.utils.UserContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -138,6 +143,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     private static final String LOG_CLOSE = "order:close";
     private static final String LOG_CLOSE_EXPIRED = "order:close-expired";
     private static final String LOG_SHIP_UPDATE = "order:ship-update";
+    /** R2 CN-IN-08：301 → 501 唯一写点的成功留痕（D-36：type=1 业务操作 / status=0 成功） */
+    private static final String LOG_COMPLETE = "order:complete";
     private static final String LOG_TARGET_TYPE = "order";
 
     /** M3：订单号时间前缀格式 */
@@ -198,6 +205,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     private final OrderGoodsMapper orderGoodsMapper;
     private final AftersaleMapper aftersaleMapper;
     private final OrderLogMapper orderLogMapper;
+    private final OrderStatsMapper orderStatsMapper;
     private final GoodsClient goodsClient;
     private final UserClient userClient;
     private final MarketingClient marketingClient;
@@ -721,18 +729,92 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     }
 
     @Override
-    public OrderAdminStatsDTO adminOrderStats() {
-        LocalDateTime today = LocalDate.now().atStartOfDay();
-        long todayOrders = count(new LambdaQueryWrapper<Order>()
-                .eq(Order::getDeleted, false)
-                .ge(Order::getAddTime, today));
-        long undelivered = count(new LambdaQueryWrapper<Order>()
-                .eq(Order::getDeleted, false)
-                .eq(Order::getOrderStatus, OrderStatus.UNDELIVERED));
+    public OrderAdminStatsDTO adminOrderStats(String period) {
+        StatsPeriod window = StatsPeriod.resolve(period);
+        LocalDateTime start = window.start();
+        LocalDateTime end = window.endExclusive();
+
         OrderAdminStatsDTO stats = new OrderAdminStatsDTO();
-        stats.setTodayOrders(todayOrders);
-        stats.setUndelivered(undelivered);
+        stats.setPeriod(window.code());
+        stats.setPeriodStart(window.startText());
+        stats.setPeriodEnd(window.endText());
+
+        // SQL-1：期内 GMV + 支付成功订单数（归期 pay_time，不含 101/103）
+        OrderStatsAggregates.Period periodAgg = orderStatsMapper.selectPeriodAgg(start, end);
+        stats.setOrderCount(periodAgg == null ? 0L : nullSafe(periodAgg.getOrderCount()));
+        stats.setGmv(fen(periodAgg == null ? null : periodAgg.getGmvYuan()));
+
+        // SQL-2：期内退款完成数 + 金额（归期 refund_time，status=1）
+        OrderStatsAggregates.Refund refundAgg = orderStatsMapper.selectRefundAgg(start, end);
+        stats.setRefundCount(refundAgg == null ? 0L : nullSafe(refundAgg.getRefundCount()));
+        stats.setRefundAmount(fen(refundAgg == null ? null : refundAgg.getRefundYuan()));
+
+        // SQL-3：热销 Top5（元 → 分在 service 边界完成）
+        List<OrderAdminStatsDTO.TopGoods> top5 = new ArrayList<>();
+        for (OrderStatsAggregates.GoodsSales row : orderStatsMapper.selectTopGoods(start, end)) {
+            OrderAdminStatsDTO.TopGoods item = new OrderAdminStatsDTO.TopGoods();
+            item.setGoodsId(row.getGoodsId());
+            item.setGoodsName(row.getGoodsName());
+            item.setQuantity(nullSafe(row.getQuantity()));
+            item.setAmount(fen(row.getAmountYuan()));
+            top5.add(item);
+        }
+        stats.setTop5(top5);
+
+        // SQL-4：自然日趋势（命中日期 + 缺失日期补 0，长度固定 1/7/30）
+        stats.setTrend(fillTrend(window, orderStatsMapper.selectTrend(start, end)));
+
+        // SQL-5：当前存量 + 今日支付成功订单数（不随 period 变化）
+        Long waitShip = nullSafe(orderStatsMapper.countWaitShip());
+        stats.setWaitShipCount(waitShip);
+        stats.setUndelivered(waitShip);
+        stats.setPendingAftersaleCount(nullSafe(orderStatsMapper.countPendingAftersale()));
+        StatsPeriod today = StatsPeriod.resolve(StatsPeriod.TODAY);
+        OrderStatsAggregates.Period todayAgg =
+                orderStatsMapper.selectPeriodAgg(today.start(), today.endExclusive());
+        stats.setTodayOrders(todayAgg == null ? 0L : nullSafe(todayAgg.getOrderCount()));
         return stats;
+    }
+
+    /**
+     * 趋势补 0：按统计期完整自然日序列输出，未命中日期填 {@code orderCount=0, gmv=0}。
+     * <p>{@code trend} 长度必须等于统计期天数（1/7/30），前端据此画图（§2.1.2）。</p>
+     */
+    private List<OrderAdminStatsDTO.Trend> fillTrend(StatsPeriod window,
+                                                     List<OrderStatsAggregates.TrendPoint> rows) {
+        Map<String, OrderStatsAggregates.TrendPoint> byDate = new HashMap<>();
+        if (rows != null) {
+            for (OrderStatsAggregates.TrendPoint row : rows) {
+                if (row != null && row.getDate() != null) {
+                    byDate.put(row.getDate(), row);
+                }
+            }
+        }
+        List<String> dates = window.dates();
+        List<OrderAdminStatsDTO.Trend> trend = new ArrayList<>(dates.size());
+        for (String date : dates) {
+            OrderStatsAggregates.TrendPoint row = byDate.get(date);
+            OrderAdminStatsDTO.Trend item = new OrderAdminStatsDTO.Trend();
+            item.setDate(date);
+            item.setOrderCount(row == null ? 0L : nullSafe(row.getOrderCount()));
+            item.setGmv(row == null ? BigDecimal.ZERO : fen(row.getGmvYuan()));
+            trend.add(item);
+        }
+        return trend;
+    }
+
+    /** 元 → 整数分（{@code null}/负数兜底 0；口径 §5.5：只在 DTO 边界转换一次） */
+    private static BigDecimal fen(BigDecimal yuan) {
+        if (yuan == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal fen = yuan.movePointRight(2).setScale(0, java.math.RoundingMode.HALF_UP);
+        return fen.signum() < 0 ? BigDecimal.ZERO : fen;
+    }
+
+    /** {@code null} 计数兜底为 0（空集返回 0，不返回 null：§1.6 / CI-08 判定） */
+    private static Long nullSafe(Long value) {
+        return value == null ? 0L : value;
     }
 
     @Override
@@ -957,13 +1039,14 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         Integer comment = og.getComment();
         boolean commented = comment != null && comment > 0;
         boolean refunded = Objects.equals(og.getRefundStatus(), 2);
-        boolean statusAllowed = Objects.equals(order.getOrderStatus(), OrderStatus.CONFIRMED)
-                || Objects.equals(order.getOrderStatus(), OrderStatus.REFUND);
+        // R2-00 §4.5：canComment 只认 301（删除 R1 的 401 分支，BR-CM-01）；仅供前端置灰，CI-36 不据此放行
+        boolean statusAllowed = Objects.equals(order.getOrderStatus(), OrderStatus.CONFIRMED);
 
         OrderGoodsStatusDTO dto = new OrderGoodsStatusDTO();
         dto.setOrderGoodsId(og.getId());
         dto.setOrderId(order.getId());
         dto.setUserId(order.getUserId());
+        dto.setGoodsId(og.getGoodsId());
         dto.setOrderStatus(order.getOrderStatus());
         dto.setOrderStatusText(OrderStatus.label(order.getOrderStatus()));
         dto.setRefundStatus(og.getRefundStatus());
@@ -974,6 +1057,64 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         dto.setCommentId(commented ? Long.valueOf(comment) : null);
         dto.setCanComment(statusAllowed && !refunded && !commented);
         return dto;
+    }
+
+    /**
+     * CN-IN-08 订单尝试完成（R2 新增；R2-00 §4.4 冻结口径）。
+     * <p>
+     * 全仓<b>唯一</b>写 {@code order_status=501} 的地方（三禁止：不写 end_time/close_type、
+     * 不当作「退款完成」、禁定时/批量刷 501）。单本地事务：
+     * <ol>
+     *   <li>仅当前 301 才执行 ①②（避免把未收货订单的行标成已评价）；</li>
+     *   <li>① 幂等标记订单行 {@code comment=0 → commentId}（重复调用 affected=0）；</li>
+     *   <li>② 单条 CAS {@code 301 → 501}，三条件全落 SQL（见
+     *       {@link OrderMapper#casComplete301To501}）；affected=0 ⇒ {@code changed=false} + 200，不报 409；</li>
+     *   <li>③ 跃迁成功写 {@code litemall_log}（D-36：type=1 业务操作 / status=0 成功）。</li>
+     * </ol>
+     * 非 301（101/102/201/103/401/402/501）一律不跃迁、不回退，幂等返回当前状态。
+     * </p>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public OrderTryCompleteResultDTO tryCompleteOrder(Long orderId, OrderTryCompleteDTO dto) {
+        if (orderId == null || dto == null || dto.getOrderGoodsId() == null || dto.getCommentId() == null) {
+            throw new BadRequestException("orderId/orderGoodsId/commentId 均不能为空", BadRequestException.PARAM_INVALID);
+        }
+        if (orderId <= 0 || dto.getOrderGoodsId() <= 0 || dto.getCommentId() <= 0) {
+            throw new BadRequestException("orderId/orderGoodsId/commentId 必须为正整数", BadRequestException.PARAM_INVALID);
+        }
+        Order order = orderMapper().selectOne(new LambdaQueryWrapper<Order>()
+                .eq(Order::getId, orderId)
+                .eq(Order::getDeleted, false));
+        if (order == null) {
+            throw new NotFoundException("订单不存在", CODE_RESOURCE_NOT_FOUND);
+        }
+        OrderGoods og = orderGoodsMapper.selectOne(new LambdaQueryWrapper<OrderGoods>()
+                .eq(OrderGoods::getId, dto.getOrderGoodsId())
+                .eq(OrderGoods::getOrderId, orderId)
+                .eq(OrderGoods::getDeleted, false));
+        if (og == null) {
+            throw new NotFoundException("订单商品不存在", CODE_RESOURCE_NOT_FOUND);
+        }
+
+        boolean changed = false;
+        if (Objects.equals(order.getOrderStatus(), OrderStatus.CONFIRMED)) {
+            // ① 幂等闸门：只有 comment=0 的行才会被写成 commentId
+            orderGoodsMapper.markCommented(og.getId(), orderId, dto.getCommentId());
+            // ② 唯一写点：三条件 CAS（当前 301 + 有未全退行 + 无「未退款且未评价」行）
+            changed = orderMapper().casComplete301To501(orderId) > 0;
+            if (changed) {
+                writeCompleteLog(orderId);
+            }
+        }
+        Order fresh = orderMapper().selectOne(new LambdaQueryWrapper<Order>()
+                .eq(Order::getId, orderId)
+                .eq(Order::getDeleted, false));
+        OrderTryCompleteResultDTO result = new OrderTryCompleteResultDTO();
+        result.setOrderId(orderId);
+        result.setOrderStatus(fresh != null ? fresh.getOrderStatus() : order.getOrderStatus());
+        result.setChanged(changed);
+        return result;
     }
 
     @Override
@@ -1479,6 +1620,30 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             orderLogMapper.insert(logRow);
         } catch (Exception e) {
             log.error("[R1] 订单操作日志写入失败, action={}, orderId={}", action, orderId, e);
+        }
+    }
+
+    /**
+     * R2 CN-IN-08 301 → 501 成功留痕（D-36 冻结：type=1 业务操作 / status=0 成功）。
+     * <p>日志失败只告警不回滚跃迁（与 R1 留痕口径一致）；{@code admin} 记 null（系统动作，禁止伪造 0）。</p>
+     */
+    private void writeCompleteLog(Long orderId) {
+        LocalDateTime now = LocalDateTime.now();
+        OrderLog logRow = new OrderLog()
+                .setAction(LOG_COMPLETE)
+                .setTargetType(LOG_TARGET_TYPE)
+                .setTargetId(orderId)
+                .setAdmin(null)
+                .setType(1)
+                .setStatus(0)
+                .setResult(StrUtil.maxLength(OrderStatus.CONFIRMED + " → " + OrderStatus.COMPLETED, 120))
+                .setAddTime(now)
+                .setUpdateTime(now)
+                .setDeleted(false);
+        try {
+            orderLogMapper.insert(logRow);
+        } catch (Exception e) {
+            log.error("[R2] 订单完成日志写入失败, action={}, orderId={}", LOG_COMPLETE, orderId, e);
         }
     }
 

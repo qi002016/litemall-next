@@ -24,6 +24,8 @@ import com.litemall.domain.dto.OrderGoodsStatusDTO;
 import com.litemall.domain.dto.OrderPayInfoDTO;
 import com.litemall.domain.dto.OrderRefundDTO;
 import com.litemall.domain.dto.OrderShipDTO;
+import com.litemall.domain.dto.OrderTryCompleteDTO;
+import com.litemall.domain.dto.OrderTryCompleteResultDTO;
 import com.litemall.domain.dto.PaySuccessDTO;
 import com.litemall.domain.dto.PaySuccessResultDTO;
 import org.springframework.cloud.openfeign.FeignClient;
@@ -141,12 +143,19 @@ public interface OrderClient {
     OrderAdminDetailDTO adminOrderDetail(@PathVariable("id") Long id);
 
     /**
-     * 管理端首页订单统计（CI-100，R1 不改）。
+     * 管理端订单统计（CI-100；R2 起支持统计期，见 05-R2 实施口径 §2.2）。
+     * <p>
+     * R2 改契约（纯增量）：新增可选入参 {@code period}（{@code today|7d|30d}，缺省/非法落
+     * {@code 30d}，不报错）；出参 {@code OrderAdminStatsDTO} 只增字段
+     * （gmv/orderCount/refundCount/refundAmount/waitShipCount/pendingAftersaleCount/top5/trend，
+     * 金额为整数分）。
+     * </p>
      *
+     * @param period 统计期，可空（等价 {@code 30d}）
      * @return 统计值
      */
     @GetMapping("/inner/order/admin/stats")
-    OrderAdminStatsDTO adminOrderStats();
+    OrderAdminStatsDTO adminOrderStats(@RequestParam(value = "period", required = false) String period);
 
     /**
      * CI-101 管理端发货：102 → 201（CAS），重复发货 409。
@@ -193,6 +202,22 @@ public interface OrderClient {
     @GetMapping("/inner/order/admin/order-goods/{id}")
     OrderGoodsStatusDTO orderGoodsStatus(@PathVariable("id") Long id,
                                          @RequestParam(value = "userId", required = false) Long userId);
+
+    /**
+     * CN-IN-08 订单尝试完成（R2 新增；goods 域 CI-36 评价成功后调用）。
+     * <p>
+     * 语义：先幂等标记订单行 {@code comment=commentId}，再 CAS 把订单 301 → 501；
+     * 只有「当前 301 + 存在未全退行 + 无未退款且未评价行」三条件同时成立才跃迁。
+     * 重复调用 / 已非 301 ⇒ {@code changed=false} + 200（不报 409，可安全重试）。
+     * </p>
+     *
+     * @param orderId 订单ID（路径参数）
+     * @param body    订单行ID + 评价ID（均必填）
+     * @return 订单ID + 回读状态 + 是否发生跃迁
+     */
+    @PostMapping("/inner/order/admin/order/{orderId}/try-complete")
+    OrderTryCompleteResultDTO tryCompleteOrder(@PathVariable("orderId") Long orderId,
+                                               @RequestBody OrderTryCompleteDTO body);
 
     /**
      * R1 管理端退款（CX-03 已下线，仅为 admin 模块编译兼容保留）。

@@ -10,6 +10,7 @@ import com.litemall.mapper.AftersaleMapper;
 import com.litemall.mapper.CartMapper;
 import com.litemall.mapper.OrderGoodsMapper;
 import com.litemall.mapper.OrderLogMapper;
+import com.litemall.mapper.OrderStatsMapper;
 import com.litemall.mapper.OrderMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -52,6 +53,9 @@ class OrderLockedStockTest {
     private AftersaleMapper aftersaleMapper;
     @Mock
     private OrderLogMapper orderLogMapper;
+
+    @Mock
+    private OrderStatsMapper orderStatsMapper;
     @Mock
     private GoodsClient goodsClient;
     @Mock
@@ -65,7 +69,7 @@ class OrderLockedStockTest {
 
     @BeforeEach
     void setUp() {
-        orderService = new OrderServiceImpl(cartMapper, orderGoodsMapper, aftersaleMapper, orderLogMapper,
+        orderService = new OrderServiceImpl(cartMapper, orderGoodsMapper, aftersaleMapper, orderLogMapper, orderStatsMapper,
                 goodsClient, userClient, marketingClient, stringRedisTemplate);
         ReflectionTestUtils.setField(orderService, "baseMapper", orderMapper);
         ReflectionTestUtils.setField(orderService, "entityClass", Order.class);

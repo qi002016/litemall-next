@@ -59,6 +59,8 @@ class QueryNormalizeTest {
     void goodsListSort() {
         assertThat(GoodsListQuery.normalizeSort("price_asc")).isEqualTo("price_asc");
         assertThat(GoodsListQuery.normalizeSort(" NEW ")).isEqualTo("new");
+        assertThat(GoodsListQuery.normalizeSort("newest")).as("R2 任务书用词 newest 等价 new").isEqualTo("new");
+        assertThat(GoodsListQuery.normalizeSort(" Price_Desc ")).isEqualTo("price_desc");
         assertThat(GoodsListQuery.normalizeSort("sales_desc")).isNull();
         assertThat(GoodsListQuery.normalizeSort(null)).isNull();
     }

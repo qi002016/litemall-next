@@ -95,7 +95,7 @@ public class StockController {
         dto.setExpectNumber(body.getExpectNumber());
         dto.setRemark(body.getRemark());
         StockAdminDTO updated = goodsClient.adminStockUpdate(dto);
-        OperationLogContext.mark(body.getRemark(), "product", body.getProductId());
+        OperationLogContext.mark(body.getRemark(), "sku", body.getProductId());
         return Result.ok(StockUpdateVO.of(updated, body.getProductId(), body.getNumber()));
     }
 }

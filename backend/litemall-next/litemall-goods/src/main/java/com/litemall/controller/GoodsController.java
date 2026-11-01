@@ -62,6 +62,7 @@ public class GoodsController {
             @RequestParam(value = "minP", required = false) String minP,
             @RequestParam(value = "maxP", required = false) String maxP,
             @RequestParam(value = "sort", required = false) String sort,
+            @RequestParam(value = "sortBy", required = false) String sortBy,
             @RequestParam(value = "onlyStock", required = false) String onlyStock) {
         GoodsListQuery query = new GoodsListQuery();
         query.setPageNum(parseInt(pageNum, "pageNum"));
@@ -71,7 +72,8 @@ public class GoodsController {
         query.setKeyword(keyword);
         query.setMinP(parseInt(minP, "minP"));
         query.setMaxP(parseInt(maxP, "maxP"));
-        query.setSort(sort);
+        // 08 §1.1 定名 sort；R2 任务书用 sortBy，作为别名兼容（sort 优先），取值仍只认白名单
+        query.setSort(sort != null && !sort.isBlank() ? sort : sortBy);
         query.setOnlyStock(parseBoolean(onlyStock, "onlyStock"));
         return Result.ok(goodsService.getGoodsList(query));
     }
@@ -93,10 +95,26 @@ public class GoodsController {
         return Result.ok(categoryService.getCategoryTree());
     }
 
+    /**
+     * 分页获取品牌列表（CI-34）。
+     *
+     * <p>
+     * 分页参数用 {@code String} 接收再手工解析：缺省（不传 / 空串）⇒ {@code null} 交给服务层落默认，
+     * 非法整数 ⇒ 400 {@code PARAM_INVALID}。原先用裸 {@code int}，调用方不传参时会被 Spring
+     * 判为「必填参数缺失」直接 500（R2-10 D-A）。
+     * </p>
+     *
+     * @param pageNum  页码，可空
+     * @param pageSize 每页条数，可空
+     * @return 品牌分页
+     */
     @Operation(summary = "分页获取品牌列表")
     @GetMapping("/brand/list")
-    public Result<PageVO<BrandVO>> getBrandList(int pageNum, int pageSize) {
-        return Result.ok(brandService.getBrandList(pageNum, pageSize));
+    public Result<PageVO<BrandVO>> getBrandList(
+            @RequestParam(value = "pageNum", required = false) String pageNum,
+            @RequestParam(value = "pageSize", required = false) String pageSize) {
+        return Result.ok(brandService.getBrandList(parseInt(pageNum, "pageNum"),
+                parseInt(pageSize, "pageSize")));
     }
 
     /* ==================== 手工参数解析 ==================== */

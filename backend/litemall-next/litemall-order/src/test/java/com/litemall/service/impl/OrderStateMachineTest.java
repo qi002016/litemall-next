@@ -6,10 +6,14 @@ import com.litemall.client.MarketingClient;
 import com.litemall.client.UserClient;
 import com.litemall.domain.PO.Order;
 import com.litemall.domain.PO.OrderGoods;
+import com.litemall.domain.PO.OrderLog;
 import com.litemall.domain.dto.DeductBatchResultDTO;
 import com.litemall.domain.dto.GoodsProductInfoDTO;
+import com.litemall.domain.dto.OrderTryCompleteDTO;
+import com.litemall.domain.dto.OrderTryCompleteResultDTO;
 import com.litemall.domain.dto.PaySuccessDTO;
 import com.litemall.domain.dto.PaySuccessResultDTO;
+import com.litemall.exception.BadRequestException;
 import com.litemall.exception.ConflictException;
 import com.litemall.exception.NotFoundException;
 import com.litemall.mapper.AftersaleMapper;
@@ -17,6 +21,7 @@ import com.litemall.mapper.CartMapper;
 import com.litemall.mapper.OrderGoodsMapper;
 import com.litemall.mapper.OrderLogMapper;
 import com.litemall.mapper.OrderMapper;
+import com.litemall.mapper.OrderStatsMapper;
 import com.litemall.utils.UserContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,6 +62,8 @@ class OrderStateMachineTest {
     @Mock
     private OrderLogMapper orderLogMapper;
     @Mock
+    private OrderStatsMapper orderStatsMapper;
+    @Mock
     private GoodsClient goodsClient;
     @Mock
     private UserClient userClient;
@@ -70,7 +77,7 @@ class OrderStateMachineTest {
     @BeforeEach
     void setUp() {
         orderService = new OrderServiceImpl(cartMapper, orderGoodsMapper, aftersaleMapper, orderLogMapper,
-                goodsClient, userClient, marketingClient, stringRedisTemplate);
+                orderStatsMapper, goodsClient, userClient, marketingClient, stringRedisTemplate);
         ReflectionTestUtils.setField(orderService, "baseMapper", orderMapper);
         ReflectionTestUtils.setField(orderService, "entityClass", Order.class);
         UserContext.setUser(1L);
@@ -304,7 +311,108 @@ class OrderStateMachineTest {
                 .isInstanceOf(NotFoundException.class);
     }
 
+    /* ==================== CN-IN-08 订单尝试完成（301 → 501 唯一写点） ==================== */
+
+    @Test
+    @DisplayName("CN-IN-08：301 且全部行已评价 → CAS 成功，changed=true，回读 501，写 D-36 日志")
+    void tryComplete_success_writesLog() {
+        when(orderMapper.selectOne(any())).thenReturn(order(30L, 301), order(30L, 501));
+        when(orderGoodsMapper.selectOne(any())).thenReturn(new OrderGoods()
+                .setId(1L).setOrderId(30L).setComment(0).setRefundStatus(0));
+        when(orderMapper.casComplete301To501(30L)).thenReturn(1);
+
+        OrderTryCompleteResultDTO result = orderService.tryCompleteOrder(30L, tryComplete(1L, 88L));
+
+        assertThat(result.getChanged()).isTrue();
+        assertThat(result.getOrderStatus()).isEqualTo(501);
+        verify(orderGoodsMapper).markCommented(1L, 30L, 88L);
+        verify(orderLogMapper).insert(any(OrderLog.class));
+    }
+
+    @Test
+    @DisplayName("CN-IN-08：重复调用（已 501）→ 幂等 changed=false + 200，不再标记、不再 CAS")
+    void tryComplete_alreadyCompleted_idempotent() {
+        when(orderMapper.selectOne(any())).thenReturn(order(31L, 501));
+        when(orderGoodsMapper.selectOne(any())).thenReturn(new OrderGoods()
+                .setId(2L).setOrderId(31L).setComment(88).setRefundStatus(0));
+
+        OrderTryCompleteResultDTO result = orderService.tryCompleteOrder(31L, tryComplete(2L, 88L));
+
+        assertThat(result.getChanged()).isFalse();
+        assertThat(result.getOrderStatus()).isEqualTo(501);
+        verify(orderGoodsMapper, never()).markCommented(any(), any(), any());
+        verify(orderMapper, never()).casComplete301To501(any());
+        verify(orderLogMapper, never()).insert(any(OrderLog.class));
+    }
+
+    @Test
+    @DisplayName("CN-IN-08：未收货（102）→ 不允许跳 501，不改行评价、不写日志")
+    void tryComplete_notReceived_noTransition() {
+        when(orderMapper.selectOne(any())).thenReturn(order(32L, 102));
+        when(orderGoodsMapper.selectOne(any())).thenReturn(new OrderGoods()
+                .setId(3L).setOrderId(32L).setComment(0).setRefundStatus(0));
+
+        OrderTryCompleteResultDTO result = orderService.tryCompleteOrder(32L, tryComplete(3L, 88L));
+
+        assertThat(result.getChanged()).isFalse();
+        assertThat(result.getOrderStatus()).isEqualTo(102);
+        verify(orderGoodsMapper, never()).markCommented(any(), any(), any());
+        verify(orderMapper, never()).casComplete301To501(any());
+    }
+
+    @Test
+    @DisplayName("CN-IN-08：仍有其它行未评价（CAS 未命中）→ changed=false，状态保持 301，不报错")
+    void tryComplete_otherLineUnreviewed_changedFalse() {
+        when(orderMapper.selectOne(any())).thenReturn(order(33L, 301));
+        when(orderGoodsMapper.selectOne(any())).thenReturn(new OrderGoods()
+                .setId(4L).setOrderId(33L).setComment(0).setRefundStatus(0));
+        when(orderMapper.casComplete301To501(33L)).thenReturn(0);
+
+        OrderTryCompleteResultDTO result = orderService.tryCompleteOrder(33L, tryComplete(4L, 88L));
+
+        assertThat(result.getChanged()).isFalse();
+        assertThat(result.getOrderStatus()).isEqualTo(301);
+        verify(orderLogMapper, never()).insert(any(OrderLog.class));
+    }
+
+    @Test
+    @DisplayName("CN-IN-08：订单不存在 → 404")
+    void tryComplete_orderNotFound() {
+        when(orderMapper.selectOne(any())).thenReturn(null);
+
+        assertThatThrownBy(() -> orderService.tryCompleteOrder(34L, tryComplete(5L, 88L)))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("CN-IN-08：订单行不属于该订单 → 404（不允许跨单标记）")
+    void tryComplete_orderGoodsNotMatch_notFound() {
+        when(orderMapper.selectOne(any())).thenReturn(order(35L, 301));
+        when(orderGoodsMapper.selectOne(any())).thenReturn(null);
+
+        assertThatThrownBy(() -> orderService.tryCompleteOrder(35L, tryComplete(6L, 88L)))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("CN-IN-08：orderGoodsId/commentId 缺失 → 400 PARAM_INVALID")
+    void tryComplete_missingIds_badRequest() {
+        assertThatThrownBy(() -> orderService.tryCompleteOrder(36L, tryComplete(null, 88L)))
+                .isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> orderService.tryCompleteOrder(36L, tryComplete(7L, null)))
+                .isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> orderService.tryCompleteOrder(null, tryComplete(7L, 88L)))
+                .isInstanceOf(BadRequestException.class);
+    }
+
     /* ==================== 辅助 ==================== */
+
+    private OrderTryCompleteDTO tryComplete(Long orderGoodsId, Long commentId) {
+        OrderTryCompleteDTO dto = new OrderTryCompleteDTO();
+        dto.setOrderGoodsId(orderGoodsId);
+        dto.setCommentId(commentId);
+        return dto;
+    }
 
     private Order order(Long id, int status) {
         return new Order()

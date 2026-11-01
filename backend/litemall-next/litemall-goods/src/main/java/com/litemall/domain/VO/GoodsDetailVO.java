@@ -68,6 +68,14 @@ public class GoodsDetailVO {
     @Schema(description = "品牌ID", type = "string")
     private Long brandId;
 
+    /* ==================== R2-10 D-D 只增字段（CI-32 详情展示品牌名/分类名） ==================== */
+
+    @Schema(description = "类目名（分类被删除或取不到时为 null）")
+    private String categoryName;
+
+    @Schema(description = "品牌名（品牌被删除或取不到时为 null）")
+    private String brandName;
+
     @Schema(description = "可售总量（Σ sellable；locked 不可用时为 null）", type = "integer")
     private Integer availableStock;
 

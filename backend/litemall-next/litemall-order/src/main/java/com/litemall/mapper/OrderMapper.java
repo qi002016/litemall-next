@@ -6,6 +6,7 @@ import com.litemall.domain.dto.LockedStockDTO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -49,4 +50,34 @@ public interface OrderMapper extends BaseMapper<Order> {
             </script>
             """)
     List<LockedStockDTO.Item> selectLockedStock(@Param("productIds") List<Long> productIds);
+
+    /**
+     * R2 CN-IN-08 ②：301 → 501 的唯一写点（R2-00 §4.4 冻结 SQL-2）。
+     * <p>
+     * 三条件全部落在 WHERE 里（单条原子 CAS，禁止「读-判-写」）：
+     * <ol>
+     *   <li>当前 {@code order_status=301}（已 501 / 未收货 / 已关闭都不会命中）；</li>
+     *   <li>{@code EXISTS} 至少一行未全退（{@code refund_status<>2}）——不得因「所有行已退款」跃迁；</li>
+     *   <li>{@code NOT EXISTS} 任一「未退款且未评价」行——已评价即 {@code comment>0}；
+     *       {@code comment=-1}（超期不可评）不参与判定，保持 -1 不动。</li>
+     * </ol>
+     * <b>禁止</b>写 {@code end_time}/{@code close_type}（关闭/取消语义专用）；<b>禁止</b>定时/批量调用。
+     * </p>
+     *
+     * @return 受影响行数（1=本次跃迁成功，0=条件不满足/已被并发跃迁 ⇒ 幂等 changed=false）
+     */
+    @Update("""
+            UPDATE litemall_order o
+               SET o.order_status = 501, o.update_time = NOW()
+             WHERE o.id = #{orderId}
+               AND o.deleted = 0
+               AND o.order_status = 301
+               AND EXISTS (SELECT 1 FROM litemall_order_goods og
+                            WHERE og.order_id = o.id AND og.deleted = 0 AND og.refund_status <> 2)
+               AND NOT EXISTS (SELECT 1 FROM litemall_order_goods og
+                                WHERE og.order_id = o.id AND og.deleted = 0
+                                  AND og.refund_status = 0
+                                  AND og.comment = 0)
+            """)
+    int casComplete301To501(@Param("orderId") Long orderId);
 }

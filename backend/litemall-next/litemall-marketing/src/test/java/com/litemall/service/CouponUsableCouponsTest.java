@@ -9,7 +9,6 @@ import com.litemall.exception.BadRequestException;
 import com.litemall.exception.UnauthorizedException;
 import com.litemall.mapper.CouponMapper;
 import com.litemall.mapper.CouponUserMapper;
-import com.litemall.mq.CouponReceiveProducer;
 import com.litemall.service.impl.CouponServiceImpl;
 import com.litemall.utils.UserContext;
 import org.junit.jupiter.api.AfterEach;
@@ -17,10 +16,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -36,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -71,9 +69,6 @@ class CouponUsableCouponsTest {
     private CouponUserMapper couponUserMapper;
 
     @Mock
-    private CouponReceiveProducer producer;
-
-    @Mock
     private ObjectMapper objectMapper;
 
     @Mock
@@ -84,7 +79,7 @@ class CouponUsableCouponsTest {
     @BeforeEach
     void setUp() {
         UserContext.setUser(USER_ID);
-        couponService = new CouponServiceImpl(stringRedisTemplate, couponUserMapper, producer, objectMapper);
+        couponService = new CouponServiceImpl(stringRedisTemplate, couponUserMapper, objectMapper);
         ReflectionTestUtils.setField(couponService, "baseMapper", couponMapper);
     }
 
@@ -198,38 +193,17 @@ class CouponUsableCouponsTest {
     // ------------------------------------------------------- 一人一券（08 §4.2）
 
     @Test
-    @DisplayName("一人一券：台账已有该券 → 直接提示「你已领过这张券」，不消耗任何 Redis 额度")
-    void receiveCoupon_alreadyReceived_rejectsWithoutTouchRedis() {
+    @DisplayName("一人一券：台账已有该券 → result=already_received / 你已领过这张券，且不触碰 Redis")
+    void receiveCoupon_alreadyReceived_returnsStateWithoutTouchRedis() {
+        when(couponMapper.selectOne(any(), anyBoolean())).thenReturn(coupon(401L, "满50减10", "10.00", "50.00").setTotal(10));
         when(couponUserMapper.selectCount(any())).thenReturn(1L);
 
-        BadRequestException ex = assertThrows(BadRequestException.class,
-                () -> couponService.receiveCoupon(401L));
+        CouponReceiveResultVO vo = couponService.receiveCoupon(401L);
 
-        assertEquals("你已领过这张券", ex.getMessage());
+        assertEquals(CouponReceiveResultVO.RESULT_ALREADY_RECEIVED, vo.getResult());
+        assertEquals("你已领过这张券", vo.getMessage());
+        assertNull(vo.getCouponUser());
         verify(stringRedisTemplate, never()).opsForValue();
-    }
-
-    @Test
-    @DisplayName("一人一券：落库撞 uk_coupon_user → 结果文案为「你已领过这张券」且仍回补库存")
-    void persistReceive_duplicateKey_writesAlreadyReceived() {
-        when(couponMapper.selectById(401L)).thenReturn(coupon(401L, "满50减10", "10.00", "50.00").setTotal(10));
-        when(couponUserMapper.selectCount(any())).thenReturn(0L);
-        // DB 原子扣 total 成功
-        when(couponMapper.update(any(), any())).thenReturn(1);
-        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
-        // 本次确实预减过 1 份：台账消费后归零
-        when(valueOperations.decrement(RESERVED_KEY_PREFIX + 401L + ":" + USER_ID)).thenReturn(0L);
-        doThrow(new DuplicateKeyException("Duplicate entry for key 'uk_coupon_user'"))
-                .when(couponUserMapper).insert(any(CouponUser.class));
-
-        couponService.persistReceive(401L, USER_ID);
-
-        verify(couponUserMapper).insert(any(CouponUser.class));
-        ArgumentCaptor<CouponReceiveResultVO> captor = ArgumentCaptor.forClass(CouponReceiveResultVO.class);
-        verify(objectMapper).writeValueAsString(captor.capture());
-        assertEquals(CouponReceiveResultVO.FAILED, captor.getValue().getStatus());
-        assertEquals("你已领过这张券", captor.getValue().getMessage());
-        verify(valueOperations).increment(STOCK_KEY_PREFIX + 401L);
     }
 
     // ---------------------------------------------------------------- helpers

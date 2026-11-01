@@ -42,6 +42,9 @@ public class TopicDTO {
     @Schema(description = "排序")
     private Integer sortOrder;
 
+    @Schema(description = "是否启用：true 展示 / false 停用（R2 新增，C 端只返回启用中的专题）")
+    private Boolean enabled;
+
     @Schema(description = "创建时间")
     private LocalDateTime addTime;
 

@@ -12,6 +12,8 @@ import com.litemall.domain.dto.OrderCloseDTO;
 import com.litemall.domain.dto.OrderGoodsStatusDTO;
 import com.litemall.domain.dto.OrderPayInfoDTO;
 import com.litemall.domain.dto.OrderShipDTO;
+import com.litemall.domain.dto.OrderTryCompleteDTO;
+import com.litemall.domain.dto.OrderTryCompleteResultDTO;
 import com.litemall.domain.dto.PaySuccessDTO;
 import com.litemall.domain.dto.PaySuccessResultDTO;
 import com.litemall.mapper.OrderMapper;
@@ -98,10 +100,11 @@ public class OrderInnerController {
         return orderService.adminOrderDetail(id);
     }
 
-    @Operation(summary = "管理端首页订单统计（CI-100）")
+    @Operation(summary = "管理端订单统计（CI-100）：period=today|7d|30d，缺省 30d")
     @GetMapping("/admin/stats")
-    public OrderAdminStatsDTO adminStats() {
-        return orderService.adminOrderStats();
+    public OrderAdminStatsDTO adminStats(
+            @RequestParam(value = "period", required = false) String period) {
+        return orderService.adminOrderStats(period);
     }
 
     @Operation(summary = "管理端发货（CI-101）：102 → 201")
@@ -136,6 +139,13 @@ public class OrderInnerController {
     public OrderGoodsStatusDTO orderGoodsStatus(@PathVariable("id") Long id,
                                                 @RequestParam(value = "userId", required = false) Long userId) {
         return orderService.orderGoodsStatus(id, userId);
+    }
+
+    @Operation(summary = "订单尝试完成 301→501（CN-IN-08，goods 评价成功后调用；幂等）")
+    @PostMapping("/admin/order/{orderId}/try-complete")
+    public OrderTryCompleteResultDTO tryCompleteOrder(@PathVariable("orderId") Long orderId,
+                                                      @RequestBody OrderTryCompleteDTO body) {
+        return orderService.tryCompleteOrder(orderId, body);
     }
 
     @Operation(summary = "查询 SKU 锁定量（CN-IN-04）")

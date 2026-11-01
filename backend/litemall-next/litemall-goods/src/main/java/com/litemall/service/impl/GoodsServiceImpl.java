@@ -82,10 +82,18 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
     @Override
     public PageVO<GoodsVO> getGoodsList(GoodsListQuery query) {
         query.normalize();
+        // R2-02：categoryId 兼容一级分类（展开为自身 + 二级子分类）；不存在/已删 ⇒ 空页，不报 404
+        List<Long> categoryScope = null;
+        if (query.getCategoryId() != null) {
+            categoryScope = categoryService.categoryScopeIds(query.getCategoryId());
+            if (categoryScope.isEmpty()) {
+                return PageVO.empty(0L, 0L);
+            }
+        }
         List<Goods> goodsList = lambdaQuery()
                 .eq(Goods::getStatus, 1)
                 .eq(Goods::getDeleted, false)
-                .eq(query.getCategoryId() != null, Goods::getCategoryId, query.getCategoryId())
+                .in(categoryScope != null, Goods::getCategoryId, categoryScope)
                 .eq(query.getBrandId() != null, Goods::getBrandId, query.getBrandId())
                 .and(query.getKeyword() != null, w -> w
                         .like(Goods::getName, query.getKeyword())
@@ -93,6 +101,8 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
                         .or().like(Goods::getKeywords, query.getKeyword()))
                 .orderByAsc(Goods::getSortOrder)
                 .orderByDesc(Goods::getAddTime)
+                // BR-SEARCH-06：确定次序键，翻页不重不漏（综合序同值时 id 兜底）
+                .orderByDesc(Goods::getId)
                 .list();
         if (goodsList.isEmpty()) {
             return PageVO.empty(0L, 0L);
@@ -108,10 +118,11 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
 
         List<GoodsVO> rows = new ArrayList<>(goodsList.size());
         for (Goods goods : goodsList) {
-            GoodsVO row = buildListRow(goods, productMap.get(goods.getId()), locked);
-            if (!matchPrice(row, query)) {
+            List<GoodsProduct> skus = productMap.get(goods.getId());
+            if (!matchPrice(goods, skus, query)) {
                 continue;
             }
+            GoodsVO row = buildListRow(goods, skus, locked);
             if (Boolean.TRUE.equals(query.getOnlyStock())) {
                 if (row.getTotalStock() == null || row.getTotalStock() <= 0) {
                     continue;
@@ -176,35 +187,69 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         return sellable == null ? stock : sellable;
     }
 
-    private boolean matchPrice(GoodsVO row, GoodsListQuery query) {
-        Integer displayPrice = row.getDisplayPrice();
-        if (query.getMinP() != null) {
-            if (displayPrice == null || displayPrice < query.getMinP()) {
-                return false;
+    /**
+     * 价格区间过滤（R2-02 / BR-SEARCH-05）：取该商品<b>全部 SKU</b> 的最低价与最高价（分），
+     * 与 {@code [minP, maxP]} 求交——多规格商品只要存在落在区间内的规格即命中
+     * （例：30–50 元的商品在 40–60 元区间内必须出现，即使它的最低价/展示价都在区间外）。
+     *
+     * <p>
+     * 无 SKU 的历史脏数据退回商品级 {@code retail_price}/{@code counter_price}；
+     * 完全没有价格信息时，有区间约束即排除（不猜价格）。
+     * </p>
+     */
+    private boolean matchPrice(Goods goods, List<GoodsProduct> products, GoodsListQuery query) {
+        if (query.getMinP() == null && query.getMaxP() == null) {
+            return true;
+        }
+        Integer lowFen = null;
+        Integer highFen = null;
+        if (products != null) {
+            for (GoodsProduct sku : products) {
+                Integer fen = GoodsSupport.yuanToFen(sku.getPrice());
+                if (fen == null) {
+                    continue;
+                }
+                lowFen = lowFen == null ? fen : Math.min(lowFen, fen);
+                highFen = highFen == null ? fen : Math.max(highFen, fen);
             }
         }
-        if (query.getMaxP() != null) {
-            if (displayPrice == null || displayPrice > query.getMaxP()) {
-                return false;
-            }
+        if (lowFen == null) {
+            Integer fallback = GoodsSupport.yuanToFen(goods.getRetailPrice() != null
+                    ? goods.getRetailPrice() : goods.getCounterPrice());
+            lowFen = fallback;
+            highFen = fallback;
         }
-        return true;
+        if (lowFen == null) {
+            return false;
+        }
+        if (query.getMinP() != null && highFen < query.getMinP()) {
+            return false;
+        }
+        return query.getMaxP() == null || lowFen <= query.getMaxP();
     }
 
     private void sortRows(List<GoodsVO> rows, String sort) {
         if (sort == null) {
-            // 综合排序：SQL 已按 sortOrder asc, addTime desc 返回，保持稳定
+            // 综合排序：SQL 已按 sort_order asc, add_time desc, id desc 返回，保持稳定
             return;
         }
+        // BR-SEARCH-06：每个排序都必须带唯一确定的次序键（id 倒序），否则同价商品翻页会重/漏
+        Comparator<GoodsVO> byIdDesc = Comparator.comparing(GoodsVO::getId,
+                Comparator.nullsLast(Comparator.reverseOrder()));
+        if ("new".equals(sort)) {
+            rows.sort(byIdDesc);
+            return;
+        }
+        // 价格排序按「展示价」（08 §1.1 BR-SEARCH-04）
         Comparator<GoodsVO> byPrice = Comparator.comparing(
                 GoodsVO::getDisplayPrice, Comparator.nullsLast(Comparator.naturalOrder()));
         if ("price_asc".equals(sort)) {
-            rows.sort(byPrice.thenComparing(GoodsVO::getId));
+            rows.sort(byPrice.thenComparing(byIdDesc));
         } else if ("price_desc".equals(sort)) {
-            rows.sort(byPrice.reversed().thenComparing(GoodsVO::getId));
-        } else if ("new".equals(sort)) {
-            // 列表行不带 addTime，用 id 倒序近似"最新"（自增主键与上架时序一致）
-            rows.sort(Comparator.comparing(GoodsVO::getId, Comparator.nullsLast(Comparator.reverseOrder())));
+            // 用 nullsLast + 反序（而不是 byPrice.reversed()），保证无价商品仍排在最后
+            Comparator<GoodsVO> byPriceDesc = Comparator.comparing(GoodsVO::getDisplayPrice,
+                    Comparator.nullsLast(Comparator.reverseOrder()));
+            rows.sort(byPriceDesc.thenComparing(byIdDesc));
         }
     }
 
@@ -311,6 +356,9 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         detail.setCounterPrice(GoodsSupport.yuanToFen(goods.getCounterPrice()));
         detail.setCategoryId(goods.getCategoryId());
         detail.setBrandId(goods.getBrandId());
+        // R2-10 D-D：详情页要展示「品牌 / 分类」名称（mobile-web GoodsDetail.vue 已写好 brandName/categoryName 渲染）
+        detail.setCategoryName(categoryNameOf(goods.getCategoryId()));
+        detail.setBrandName(brandNameOf(goods.getBrandId()));
         detail.setPrice(displayFen != null ? displayFen : minFen);
         detail.setStock(stockTotal);
         detail.setAvailableStock(lockedUnavailable ? null : availableTotal);
@@ -322,6 +370,52 @@ public class GoodsServiceImpl extends ServiceImpl<GoodsMapper, Goods> implements
         detail.setAttributes(toAttributeVOs(attributes));
         detail.setLockedUnavailable(lockedUnavailable);
         return detail;
+    }
+
+    /**
+     * 分类名（CI-32 详情用，R2-10 D-D）。
+     *
+     * <p>
+     * 单个 ID 逐条查未删除分类即可，但同样守住 {@link #buildAdminRows(List)} 里踩过的两个坑：
+     * <b>ID 为 null 直接短路</b>（不拿 null 去查库、更不拿 null 当 Map 键——不可变 Map 会 NPE），
+     * <b>不拼 {@code IN ()}</b>（空集合批量查询是 MySQL 语法错误）。
+     * 分类不存在或被软删时返回 {@code null}，由前端渲染「—」。
+     * </p>
+     *
+     * @param categoryId 商品类目ID，可空
+     * @return 类目名；取不到为 {@code null}
+     */
+    private String categoryNameOf(Long categoryId) {
+        if (categoryId == null) {
+            return null;
+        }
+        Category category = categoryService.lambdaQuery()
+                .eq(Category::getId, categoryId)
+                .eq(Category::getDeleted, false)
+                .one();
+        return category == null ? null : category.getName();
+    }
+
+    /**
+     * 品牌名（CI-32 详情用，R2-10 D-D）。
+     *
+     * <p>
+     * {@code goods.brand_id} 允许为空（种子数据里就存在无品牌商品），故 null 必须短路；
+     * 品牌不存在/被软删同样返回 {@code null}。
+     * </p>
+     *
+     * @param brandId 商品品牌ID，可空
+     * @return 品牌名；取不到为 {@code null}
+     */
+    private String brandNameOf(Long brandId) {
+        if (brandId == null) {
+            return null;
+        }
+        Brand brand = brandService.lambdaQuery()
+                .eq(Brand::getId, brandId)
+                .eq(Brand::getDeleted, false)
+                .one();
+        return brand == null ? null : brand.getName();
     }
 
     /**

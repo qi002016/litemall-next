@@ -1,6 +1,7 @@
 package com.litemall.domain;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -39,6 +40,22 @@ public class AdminAccount implements Serializable {
 
     /** 账号状态：1 启用 / 0 禁用（需求 5.14） */
     private Integer status;
+
+    /**
+     * 状态文案：启用 / 禁用（05-R2 实施口径 §1.5.1「后台账号出参附 statusText」）。
+     * <p>仅用于出参展示，不是 {@code litemall_admin} 的列。</p>
+     */
+    @TableField(exist = false)
+    private String statusText;
+
+    /**
+     * 旧密码：仅用于 CI-03 自助改密（{@code PUT /admin/account/update}）时的原密码校验，
+     * 不落库、不出参、不参与任何 SQL。
+     * <p>管理员改他人密码仍走 CI-04 {@code /reset-password}；本字段只在
+     * {@code id == 当前登录账号} 且 {@code password} 非空时被读取。</p>
+     */
+    @TableField(exist = false)
+    private String oldPassword;
 
     private LocalDateTime addTime;
 

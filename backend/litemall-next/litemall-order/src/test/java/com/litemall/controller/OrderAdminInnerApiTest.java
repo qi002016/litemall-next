@@ -4,6 +4,8 @@ import com.litemall.domain.dto.CloseExpiredResultDTO;
 import com.litemall.domain.dto.OrderCloseDTO;
 import com.litemall.domain.dto.OrderGoodsStatusDTO;
 import com.litemall.domain.dto.OrderShipDTO;
+import com.litemall.domain.dto.OrderTryCompleteDTO;
+import com.litemall.domain.dto.OrderTryCompleteResultDTO;
 import com.litemall.exception.BadRequestException;
 import com.litemall.service.IOrderService;
 import org.junit.jupiter.api.BeforeEach;
@@ -145,6 +147,30 @@ class OrderAdminInnerApiTest {
                 .andExpect(status().isOk());
 
         verify(orderService).lockedStock("1001,1002");
+    }
+
+    @Test
+    @DisplayName("H5：CN-IN-08 try-complete 路径参数与请求体映射，返回裸 DTO（Long 序列化为字符串）")
+    void tryCompleteMapsPathAndBody() throws Exception {
+        OrderTryCompleteResultDTO result = new OrderTryCompleteResultDTO();
+        result.setOrderId(9L);
+        result.setOrderStatus(501);
+        result.setChanged(true);
+        when(orderService.tryCompleteOrder(eq(9L), any(OrderTryCompleteDTO.class))).thenReturn(result);
+
+        mockMvc.perform(post("/inner/order/admin/order/9/try-complete")
+                        .header("X-Internal-Token", TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"orderGoodsId\":1,\"commentId\":88}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orderId").value("9"))
+                .andExpect(jsonPath("$.orderStatus").value(501))
+                .andExpect(jsonPath("$.changed").value(true));
+
+        ArgumentCaptor<OrderTryCompleteDTO> captor = ArgumentCaptor.forClass(OrderTryCompleteDTO.class);
+        verify(orderService).tryCompleteOrder(eq(9L), captor.capture());
+        assertThat(captor.getValue().getOrderGoodsId()).isEqualTo(1L);
+        assertThat(captor.getValue().getCommentId()).isEqualTo(88L);
     }
 
     @Test

@@ -1,6 +1,16 @@
 package com.litemall.client;
 
 import com.litemall.domain.PageVO;
+import com.litemall.domain.dto.BrandAdminDTO;
+import com.litemall.domain.dto.BrandAdminVO;
+import com.litemall.domain.dto.CategoryAdminDTO;
+import com.litemall.domain.dto.CategoryAdminVO;
+import com.litemall.domain.dto.CategoryCreateResultDTO;
+import com.litemall.domain.dto.CommentAdminVO;
+import com.litemall.domain.dto.CommentReplyDTO;
+import com.litemall.domain.dto.CommentReplyResultDTO;
+import com.litemall.domain.dto.CommentStatusDTO;
+import com.litemall.domain.dto.CommentStatusResultDTO;
 import com.litemall.domain.dto.DeductBatchResultDTO;
 import com.litemall.domain.dto.GoodsAdminDTO;
 import com.litemall.domain.dto.GoodsBriefDTO;
@@ -205,4 +215,129 @@ public interface GoodsClient {
      */
     @PutMapping("/inner/goods/admin/stock/update")
     StockAdminDTO adminStockUpdate(@RequestBody StockAdminDTO dto);
+
+    /* ==================== 分类 / 品牌（R2-01：CN-21~28，admin 经 Feign 消费） ==================== */
+
+    /**
+     * 管理端分类树（CN-21 对内）。
+     *
+     * @param withGoodsCount 是否返回商品数（含已下架、不含已删除）
+     * @return 两级分类树（同层按 sortOrder / id 升序）
+     */
+    @GetMapping("/inner/goods/admin/category/list")
+    List<CategoryAdminVO> adminCategoryTree(@RequestParam(value = "withGoodsCount", required = false)
+                                            Boolean withGoodsCount);
+
+    /**
+     * 管理端新建分类（CN-22 对内）。
+     *
+     * @param dto 分类信息（pid 缺省 0 表示一级）
+     * @return {@code {id, level}}
+     */
+    @PostMapping("/inner/goods/admin/category/create")
+    CategoryCreateResultDTO adminCreateCategory(@RequestBody CategoryAdminDTO dto);
+
+    /**
+     * 管理端修改分类（CN-23 对内）：pid 冻结，updateTime 回传即 CAS。
+     *
+     * @param dto 分类信息（id 必填）
+     */
+    @PutMapping("/inner/goods/admin/category/update")
+    void adminUpdateCategory(@RequestBody CategoryAdminDTO dto);
+
+    /**
+     * 管理端删除分类（CN-24 对内）：有子分类 / 有商品 ⇒ 409；否则物理删除。
+     *
+     * @param id 分类ID
+     */
+    @DeleteMapping("/inner/goods/admin/category/delete")
+    void adminDeleteCategory(@RequestParam("id") Long id);
+
+    /**
+     * 管理端品牌分页（CN-25 对内）。
+     *
+     * @param pageNum  页码（≥1）
+     * @param pageSize 每页条数（1–100）
+     * @param keyword  品牌名模糊，可空（≤50）
+     * @param sortBy   sortOrder | addTime | name，可空（默认 sortOrder）
+     * @param isAsc    是否升序，可空（默认 true）
+     * @return 分页品牌行
+     */
+    @GetMapping("/inner/goods/admin/brand/list")
+    PageVO<BrandAdminVO> adminListBrands(@RequestParam("pageNum") Integer pageNum,
+                                         @RequestParam("pageSize") Integer pageSize,
+                                         @RequestParam(value = "keyword", required = false) String keyword,
+                                         @RequestParam(value = "sortBy", required = false) String sortBy,
+                                         @RequestParam(value = "isAsc", required = false) Boolean isAsc);
+
+    /**
+     * 管理端新建品牌（CN-26 对内）。
+     *
+     * @param dto 品牌信息
+     * @return 新品牌ID
+     */
+    @PostMapping("/inner/goods/admin/brand/create")
+    Long adminCreateBrand(@RequestBody BrandAdminDTO dto);
+
+    /**
+     * 管理端修改品牌（CN-27 对内）。
+     *
+     * @param dto 品牌信息（id 必填）
+     */
+    @PutMapping("/inner/goods/admin/brand/update")
+    void adminUpdateBrand(@RequestBody BrandAdminDTO dto);
+
+    /**
+     * 管理端删除品牌（CN-28 对内）：仍有商品 ⇒ 409；否则物理删除。
+     *
+     * @param id 品牌ID
+     */
+    @DeleteMapping("/inner/goods/admin/brand/delete")
+    void adminDeleteBrand(@RequestParam("id") Long id);
+
+    /* ==================== 管理端评价（CN-29~31 对内，05 §3.9~§3.11） ==================== */
+
+    /**
+     * 管理端评价分页（CN-29 对内）：{@code total} 与列表<b>含已隐藏</b>，与 C 端口径不同。
+     *
+     * @param pageNum  页码（≥1）
+     * @param pageSize 每页条数（1–100）
+     * @param goodsId  商品ID，可空
+     * @param keyword  评价内容模糊，可空（≤50）
+     * @param star     星级逗号多值（如 {@code 1,2}），可空
+     * @param replied  是否已回复，可空
+     * @param status   状态逗号多值（0=显示 1=已隐藏），可空
+     * @param dateFrom 评价时间起（{@code yyyy-MM-dd HH:mm:ss}），可空
+     * @param dateTo   评价时间止（{@code yyyy-MM-dd HH:mm:ss}），可空
+     * @return 分页评价行
+     */
+    @GetMapping("/inner/goods/admin/comment/list")
+    PageVO<CommentAdminVO> adminCommentList(
+            @RequestParam("pageNum") Integer pageNum,
+            @RequestParam("pageSize") Integer pageSize,
+            @RequestParam(value = "goodsId", required = false) Long goodsId,
+            @RequestParam(value = "keyword", required = false) String keyword,
+            @RequestParam(value = "star", required = false) String star,
+            @RequestParam(value = "replied", required = false) Boolean replied,
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "dateFrom", required = false) String dateFrom,
+            @RequestParam(value = "dateTo", required = false) String dateTo);
+
+    /**
+     * 管理端回复评价（CN-30 对内）：覆盖写，{@code reply_time} 每次刷新。
+     *
+     * @param dto 回复内容
+     * @return {@code {commentId, adminContent, replyTime}}
+     */
+    @PostMapping("/inner/goods/admin/comment/reply")
+    CommentReplyResultDTO adminCommentReply(@RequestBody CommentReplyDTO dto);
+
+    /**
+     * 管理端隐藏/恢复评价（CN-31 对内）：{@code status} 是目标态，重复提交幂等。
+     *
+     * @param dto 目标状态
+     * @return {@code {commentId, status, statusText}}
+     */
+    @PostMapping("/inner/goods/admin/comment/status")
+    CommentStatusResultDTO adminCommentStatus(@RequestBody CommentStatusDTO dto);
 }

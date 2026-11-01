@@ -1,11 +1,23 @@
 package com.litemall.controller;
 
 import cn.hutool.core.convert.Convert;
+import com.litemall.domain.DTO.BrandAdminQuery;
+import com.litemall.domain.DTO.CommentAdminQuery;
 import com.litemall.domain.DTO.GoodsAdminQuery;
 import com.litemall.domain.DTO.StockAdminQuery;
 import com.litemall.domain.PO.Goods;
 import com.litemall.domain.PO.GoodsProduct;
 import com.litemall.domain.PageVO;
+import com.litemall.domain.dto.BrandAdminDTO;
+import com.litemall.domain.dto.BrandAdminVO;
+import com.litemall.domain.dto.CategoryAdminDTO;
+import com.litemall.domain.dto.CategoryAdminVO;
+import com.litemall.domain.dto.CategoryCreateResultDTO;
+import com.litemall.domain.dto.CommentAdminVO;
+import com.litemall.domain.dto.CommentReplyDTO;
+import com.litemall.domain.dto.CommentReplyResultDTO;
+import com.litemall.domain.dto.CommentStatusDTO;
+import com.litemall.domain.dto.CommentStatusResultDTO;
 import com.litemall.domain.dto.DeductBatchResultDTO;
 import com.litemall.domain.dto.GoodsAdminDTO;
 import com.litemall.domain.dto.GoodsBriefDTO;
@@ -15,6 +27,9 @@ import com.litemall.domain.dto.StockAdminDTO;
 import com.litemall.domain.dto.StockChangeDTO;
 import com.litemall.exception.GoodsApiException;
 import com.litemall.exception.InsufficientStockException;
+import com.litemall.service.IBrandService;
+import com.litemall.service.ICategoryService;
+import com.litemall.service.ICommentService;
 import com.litemall.service.IGoodsProductService;
 import com.litemall.service.IGoodsService;
 import com.litemall.service.IGoodsWriteService;
@@ -63,6 +78,9 @@ public class GoodsInnerController {
     private final IGoodsWriteService goodsWriteService;
     private final IStockService stockService;
     private final LockedStockProvider lockedStockProvider;
+    private final ICategoryService categoryService;
+    private final IBrandService brandService;
+    private final ICommentService commentService;
 
     /* ==================== 货品信息（CI-40） ==================== */
 
@@ -259,4 +277,104 @@ public class GoodsInnerController {
         return stockService.adminStockUpdate(dto);
     }
 
+    /* ==================== 管理端分类 / 品牌（CN-21~28 对内，05 §4.1） ==================== */
+
+    @Operation(summary = "管理端分类树")
+    @GetMapping("/admin/category/list")
+    public List<CategoryAdminVO> adminCategoryList(
+            @RequestParam(value = "withGoodsCount", required = false) Boolean withGoodsCount) {
+        return categoryService.adminTree(Boolean.TRUE.equals(withGoodsCount));
     }
+
+    @Operation(summary = "管理端新建分类")
+    @PostMapping("/admin/category/create")
+    public CategoryCreateResultDTO adminCategoryCreate(@RequestBody CategoryAdminDTO dto) {
+        return categoryService.createCategory(dto);
+    }
+
+    @Operation(summary = "管理端修改分类")
+    @PutMapping("/admin/category/update")
+    public void adminCategoryUpdate(@RequestBody CategoryAdminDTO dto) {
+        categoryService.updateCategory(dto);
+    }
+
+    @Operation(summary = "管理端删除分类（物理删除）")
+    @DeleteMapping("/admin/category/delete")
+    public void adminCategoryDelete(@RequestParam("id") Long id) {
+        categoryService.deleteCategory(id);
+    }
+
+    @Operation(summary = "管理端品牌分页列表")
+    @GetMapping("/admin/brand/list")
+    public PageVO<BrandAdminVO> adminBrandList(
+            @RequestParam(value = "pageNum", required = false) Integer pageNum,
+            @RequestParam(value = "pageSize", required = false) Integer pageSize,
+            @RequestParam(value = "keyword", required = false) String keyword,
+            @RequestParam(value = "sortBy", required = false) String sortBy,
+            @RequestParam(value = "isAsc", required = false) Boolean isAsc) {
+        BrandAdminQuery query = new BrandAdminQuery();
+        query.setPageNum(pageNum);
+        query.setPageSize(pageSize);
+        query.setKeyword(keyword);
+        query.setSortBy(sortBy);
+        query.setIsAsc(isAsc);
+        return brandService.adminListBrands(query);
+    }
+
+    @Operation(summary = "管理端新建品牌")
+    @PostMapping("/admin/brand/create")
+    public Long adminBrandCreate(@RequestBody BrandAdminDTO dto) {
+        return brandService.createBrand(dto);
+    }
+
+    @Operation(summary = "管理端修改品牌")
+    @PutMapping("/admin/brand/update")
+    public void adminBrandUpdate(@RequestBody BrandAdminDTO dto) {
+        brandService.updateBrand(dto);
+    }
+
+    @Operation(summary = "管理端删除品牌（物理删除）")
+    @DeleteMapping("/admin/brand/delete")
+    public void adminBrandDelete(@RequestParam("id") Long id) {
+        brandService.deleteBrand(id);
+    }
+
+    /* ==================== 管理端评价（CN-29~31 对内，05 §3.9~§3.11） ==================== */
+
+    @Operation(summary = "管理端评价分页列表（含已隐藏）")
+    @GetMapping("/admin/comment/list")
+    public PageVO<CommentAdminVO> adminCommentList(
+            @RequestParam(value = "pageNum", required = false) Integer pageNum,
+            @RequestParam(value = "pageSize", required = false) Integer pageSize,
+            @RequestParam(value = "goodsId", required = false) Long goodsId,
+            @RequestParam(value = "keyword", required = false) String keyword,
+            @RequestParam(value = "star", required = false) String star,
+            @RequestParam(value = "replied", required = false) Boolean replied,
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "dateFrom", required = false) String dateFrom,
+            @RequestParam(value = "dateTo", required = false) String dateTo) {
+        CommentAdminQuery query = new CommentAdminQuery();
+        query.setPageNum(pageNum);
+        query.setPageSize(pageSize);
+        query.setGoodsId(goodsId);
+        query.setKeyword(keyword);
+        query.setStar(star);
+        query.setReplied(replied);
+        query.setStatus(status);
+        query.setDateFrom(dateFrom);
+        query.setDateTo(dateTo);
+        return commentService.adminListComments(query);
+    }
+
+    @Operation(summary = "管理端回复评价")
+    @PostMapping("/admin/comment/reply")
+    public CommentReplyResultDTO adminCommentReply(@RequestBody CommentReplyDTO dto) {
+        return commentService.replyComment(dto);
+    }
+
+    @Operation(summary = "管理端隐藏/恢复评价")
+    @PostMapping("/admin/comment/status")
+    public CommentStatusResultDTO adminCommentStatus(@RequestBody CommentStatusDTO dto) {
+        return commentService.updateCommentStatus(dto);
+    }
+}

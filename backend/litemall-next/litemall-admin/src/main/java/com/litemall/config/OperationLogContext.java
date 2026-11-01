@@ -35,12 +35,29 @@ public final class OperationLogContext {
      * @param targetId   操作对象ID（可空）
      */
     public static void mark(String comment, String targetType, Long targetId) {
+        mark(comment, targetType, targetId, null);
+    }
+
+    /**
+     * 记录本次请求的业务补充信息（含动作文案）。
+     * <p>
+     * R2（05 §3.14/§5.11）：内容停用类动作的日志 {@code action} 必须是业务文案
+     * （如「停用公告」「启用公告」），而非默认的 {@code METHOD path}，因此在此显式透传。
+     * </p>
+     *
+     * @param comment    日志备注（可空）
+     * @param targetType 操作对象类型（可空，如 {@code notice}）
+     * @param targetId   操作对象ID（可空）
+     * @param action     动作文案（可空；为空时拦截器回退为 {@code METHOD path}）
+     */
+    public static void mark(String comment, String targetType, Long targetId, String action) {
         try {
             RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
             if (attributes == null) {
                 return;
             }
-            attributes.setAttribute(ATTR, new Extra(comment, targetType, targetId), RequestAttributes.SCOPE_REQUEST);
+            attributes.setAttribute(ATTR, new Extra(comment, targetType, targetId, action),
+                    RequestAttributes.SCOPE_REQUEST);
         } catch (Exception ignored) {
             // 日志补充信息失败不影响业务
         }
@@ -70,7 +87,8 @@ public final class OperationLogContext {
      * @param comment    日志备注
      * @param targetType 操作对象类型
      * @param targetId   操作对象ID
+     * @param action     动作文案（可空；为空时拦截器用 {@code METHOD path}）
      */
-    public record Extra(String comment, String targetType, Long targetId) {
+    public record Extra(String comment, String targetType, Long targetId, String action) {
     }
 }

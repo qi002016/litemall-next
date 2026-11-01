@@ -27,21 +27,22 @@ public interface ICouponService extends IService<Coupon> {
     PageVO<CouponVO> getCouponList(Integer pageNum, Integer pageSize);
 
     /**
-     * 领取优惠券（异步：Redis 预减库存 + MQ 落库）
+     * 领取优惠券（CI-54：同步返回四态，不是排队）
+     * <p>
+     * 判定顺序见 05 §2.4：登录 → 券存在 → 已领过 → 频控 → 不可领取/不在有效期 → 已领完 → 出券。
+     * 四态失败以返回值表达（{@code result=already_received/sold_out/disabled}），
+     * 未登录/券不存在/频控仍以异常表达（data=null）。
+     * </p>
+     *
      * @param couponId 优惠券ID
-     * @return 排队状态 PROCESSING
+     * @return 四态结果；success 时带 couponUser
      */
     CouponReceiveResultVO receiveCoupon(Long couponId);
 
     /**
-     * 查询领券结果（客户端轮询）
+     * 查询领券结果（CI-55 客户端轮询；R2 领券已同步，本接口仅作兼容读法）
      */
     CouponReceiveResultVO getReceiveResult(Long couponId);
-
-    /**
-     * MQ 消费：实际落库（内部方法，由 consumer 调用）
-     */
-    void persistReceive(Long couponId, Long userId);
 
     /**
      * 获取用户优惠券列表

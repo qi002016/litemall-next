@@ -20,6 +20,8 @@ public class TopicServiceImpl extends ServiceImpl<TopicMapper, Topic> implements
         Page<Topic> page = new Page<>(pageNum, pageSize);
         Page<Topic> p = lambdaQuery()
                 .eq(Topic::getDeleted, false)
+                // R2：C 端只展示启用中的专题，管理端停用（enabled=false）后即刻不可见
+                .eq(Topic::getEnabled, true)
                 .orderByAsc(Topic::getSortOrder)
                 .orderByDesc(Topic::getAddTime)
                 .page(page);

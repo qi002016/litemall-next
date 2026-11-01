@@ -3,7 +3,6 @@ package com.litemall.domain.DTO;
 import com.litemall.exception.GoodsApiException;
 import lombok.Data;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -88,13 +87,21 @@ public class GoodsListQuery {
 
     /**
      * 排序白名单归一：非法值一律返回 {@code null}（调用方落默认排序）。
+     *
+     * <p>
+     * 白名单以 08 §1.1 / 05 §1.4 为准：{@code price_asc | price_desc | new}；
+     * 另兼容任务书用词 {@code newest}（等价 {@code new}），不额外放宽其它取值。
+     * </p>
      */
     public static String normalizeSort(String sort) {
         if (sort == null) {
             return null;
         }
-        String value = sort.trim().toLowerCase();
-        List<String> allowed = new ArrayList<>(List.of("price_asc", "price_desc", "new"));
+        String value = sort.trim().toLowerCase(java.util.Locale.ROOT);
+        if ("newest".equals(value)) {
+            value = "new";
+        }
+        List<String> allowed = List.of("price_asc", "price_desc", "new");
         return allowed.contains(value) ? value : null;
     }
 }

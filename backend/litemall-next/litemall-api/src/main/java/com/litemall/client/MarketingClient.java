@@ -5,6 +5,8 @@ import com.litemall.domain.dto.AdDTO;
 import com.litemall.domain.dto.CouponCheckDTO;
 import com.litemall.domain.dto.CouponDTO;
 import com.litemall.domain.dto.CouponUseDTO;
+import com.litemall.domain.dto.NoticeAdminDTO;
+import com.litemall.domain.dto.NoticeDTO;
 import com.litemall.domain.dto.TopicDTO;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -167,4 +169,39 @@ public interface MarketingClient {
      */
     @DeleteMapping("/inner/market/admin/topic/delete")
     void adminDeleteTopic(@RequestParam("id") Long id);
+
+    /* ==================== R2：管理端公告（CN-IN-05/06/07，marketing 拥有 litemall_notice） ==================== */
+
+    /**
+     * CN-IN-05：管理端公告分页列表（排序固定 add_time DESC, id DESC）。
+     *
+     * @param pageNum  页码（≥1）
+     * @param pageSize 每页条数
+     * @param keyword  标题模糊关键字（≤50）
+     * @param enabled  启用状态筛选（可空）
+     * @return 分页公告（adminName 恒 null）
+     */
+    @GetMapping("/inner/market/admin/notice/list")
+    PageVO<NoticeAdminDTO> adminListNotices(@RequestParam("pageNum") Integer pageNum,
+                                            @RequestParam("pageSize") Integer pageSize,
+                                            @RequestParam(value = "keyword", required = false) String keyword,
+                                            @RequestParam(value = "enabled", required = false) Boolean enabled);
+
+    /**
+     * CN-IN-06：新建公告。
+     *
+     * @param dto 公告信息（不得含 id；adminId 由 admin 透传）
+     * @return 新建公告ID
+     */
+    @PostMapping("/inner/market/admin/notice/create")
+    Long adminCreateNotice(@RequestBody NoticeDTO dto);
+
+    /**
+     * CN-IN-07：编辑/启停公告（CAS 于 id + update_time）。
+     *
+     * @param dto 公告信息（id 必填，其余可选）
+     * @return 公告ID
+     */
+    @PostMapping("/inner/market/admin/notice/update")
+    Long adminUpdateNotice(@RequestBody NoticeDTO dto);
 }
