@@ -1,0 +1,137 @@
+{
+  "run": "20261101-2035",
+  "app": "http://127.0.0.1:5173",
+  "admin": "http://127.0.0.1:5174",
+  "api": "http://127.0.0.1:8000",
+  "at": "2026-11-01T12:20:29.425Z",
+  "fails": 10,
+  "total": 21,
+  "records": [
+    {
+      "step": "R0 夹具复位（删除旧分类/品牌、993001 归位、998221 评价清空、998018 复原 301）",
+      "ok": true,
+      "detail": "categoryRoots=19 brandHit=7 goodsUpdate=http=200/code=200 mysqlExit=0 mysql: [Warning] Using a password on the command line interface can be insecure.",
+      "at": "2026-11-01T12:19:22.293Z"
+    },
+    {
+      "step": "U1 后台登录（真实表单提交，跳转工作台，token 落 localStorage）",
+      "ok": true,
+      "detail": "path=/dashboard tokenLen=478",
+      "at": "2026-11-01T12:19:24.752Z"
+    },
+    {
+      "step": "U2-1 分类管理页新建一级分类「服饰」",
+      "ok": true,
+      "detail": "fill={\"ok\":true,\"val\":\"服饰\"} save={\"ok\":true,\"tag\":\"BUTTON\",\"text\":\"保存\"} toast=分类已创建 树含服饰=true",
+      "at": "2026-11-01T12:19:27.824Z"
+    },
+    {
+      "step": "U2-2 在「服饰」下新增子分类「上装」（两级）",
+      "ok": true,
+      "detail": "rowAction={\"ok\":true,\"exact\":2} fill={\"ok\":true,\"val\":\"上装\"} save={\"ok\":true,\"tag\":\"BUTTON\",\"text\":\"保存\"} toast=分类已创建 | 分类已创建 含二级标签=true",
+      "at": "2026-11-01T12:19:29.370Z"
+    },
+    {
+      "step": "U2-3 品牌管理页新建品牌 ACME 并出现在列表",
+      "ok": true,
+      "detail": "fill={\"ok\":true,\"val\":\"ACME\"} save={\"ok\":true,\"tag\":\"BUTTON\",\"text\":\"保存\"} toast=品牌已创建 列表含ACME=true",
+      "at": "2026-11-01T12:19:32.690Z"
+    },
+    {
+      "step": "R0b 清 C 端分类树缓存（绕过已知 t19 失效竞态，仅为继续 UI 步骤）",
+      "ok": true,
+      "detail": "redisDel=0",
+      "at": "2026-11-01T12:19:33.152Z"
+    },
+    {
+      "step": "U3-1 商品 993001 在后台改挂「服饰/上装」+ 品牌 ACME 并保存成功",
+      "ok": false,
+      "detail": "cat={\"ok\":true}/{\"ok\":true,\"text\":\"服饰 / 上装\"} brand={\"ok\":true}/{\"ok\":true,\"text\":\"ACME\"} save={\"ok\":true,\"tag\":\"BUTTON\",\"text\":\"保存\"} toast=商品已保存 dialogOpen=true",
+      "at": "2026-11-01T12:19:41.011Z"
+    },
+    {
+      "step": "U4 C 端买家登录（r2demo_buyer1 真实表单）",
+      "ok": true,
+      "detail": "path=/me tokenLen=470 toast=",
+      "at": "2026-11-01T12:19:45.293Z"
+    },
+    {
+      "step": "U5-1 C 端分类页 服饰 → 上装 可进入列表且能看到 993001",
+      "ok": true,
+      "detail": "click1={\"ok\":true,\"tag\":\"DIV\",\"text\":\"服饰\"} click2={\"ok\":true,\"tag\":\"DIV\",\"text\":\"🏀 上装\"} url=/list?categoryId=1036244 含T恤=true cards=1",
+      "at": "2026-11-01T12:19:50.644Z"
+    },
+    {
+      "step": "U5-2 价格升序：URL sort=price_asc 且列表价格单调不减",
+      "ok": true,
+      "detail": "click={\"ok\":true} url=?categoryId=1036244&sort=price_asc prices=[79] asc=true",
+      "at": "2026-11-01T12:19:52.458Z"
+    },
+    {
+      "step": "U5-3 筛选价格区间 50–100：minP=5000&maxP=10000，列表价格全在区间内",
+      "ok": true,
+      "detail": "open=true min=true max=true apply={\"ok\":true,\"tag\":\"BUTTON\",\"text\":\"查看 1 件商品\"} url=?categoryId=1036244&sort=price_asc&minP=5000&maxP=10000 prices=[79] 共=1",
+      "at": "2026-11-01T12:19:55.810Z"
+    },
+    {
+      "step": "U5-4 加载更多后筛选/排序条件保持，且新数据仍在区间内",
+      "ok": false,
+      "detail": "before=1 after=1 url=?categoryId=1036244&sort=price_asc&minP=5000&maxP=10000 kept=true prices=[79]",
+      "at": "2026-11-01T12:19:58.016Z"
+    },
+    {
+      "step": "U5-5 商品详情页显示品牌 ACME",
+      "ok": false,
+      "detail": "含ACME=false 品牌字样=null 评价数=null",
+      "at": "2026-11-01T12:20:00.696Z"
+    },
+    {
+      "step": "U6-1 已收货订单行提交 5 星评价（真实点击 + 文案）",
+      "ok": true,
+      "detail": "star={\"ok\":true,\"n\":5} textarea=true submit={\"ok\":true,\"tag\":\"BUTTON\",\"text\":\"提交评价\"} toast= 已评价=true",
+      "at": "2026-11-01T12:20:06.853Z"
+    },
+    {
+      "step": "U7-1 后台回复评价并落到列表",
+      "ok": false,
+      "detail": "评价列表未找到刚提交的评价（keyword 只匹配内容，¥{RU}）body=满 小满商城后台 运营 / 客服（单商户 · 演示身份） 工作台 订单管理 售后处理 5 商品与规格 分类管理 品牌管理 库存视图 优惠券 R2/R3 评价管理 公告管理 账号管理 演示工具 R2/R3 评价管理 我是运营 / 客服（演示身份） admin123 评价管理 每条评价只能有 1 条回复、可修改（BR-CM-03）；隐藏后买家端不再展示 刷新 全部 待回复 已回复 星级（可多选） 可见",
+      "at": "2026-11-01T12:20:11.255Z"
+    },
+    {
+      "step": "U7-2 后台隐藏该评价，列表出现「已隐藏」标记",
+      "ok": false,
+      "detail": "hide={\"ok\":false,\"why\":\"no-row\",\"rowText\":\"R2 验收五星好评 20\",\"rows\":0,\"exact\":0} confirm={\"ok\":false,\"n\":0} toast= 已隐藏=false",
+      "at": "2026-11-01T12:20:13.746Z"
+    },
+    {
+      "step": "U7-3 C 端详情：隐藏后评价消失、评价数 −1",
+      "ok": false,
+      "detail": "含评论文本=false 评论数=null → null 差1=false",
+      "at": "2026-11-01T12:20:16.405Z"
+    },
+    {
+      "step": "U8 工作台「今日」：五数字区渲染且无 NaN/undefined",
+      "ok": false,
+      "detail": "click={\"ok\":true,\"tag\":\"BUTTON\",\"text\":\"今日\"} GMV=5077.00 NaN/undefined=true",
+      "at": "2026-11-01T12:20:20.894Z"
+    },
+    {
+      "step": "U8 工作台「近 7 天」：五数字区渲染且无 NaN/undefined",
+      "ok": false,
+      "detail": "click={\"ok\":true,\"tag\":\"BUTTON\",\"text\":\"近 7 天\"} GMV=7 NaN/undefined=true",
+      "at": "2026-11-01T12:20:22.712Z"
+    },
+    {
+      "step": "U8 工作台「近 30 天」：五数字区渲染且无 NaN/undefined",
+      "ok": false,
+      "detail": "click={\"ok\":true,\"tag\":\"BUTTON\",\"text\":\"近 30 天\"} GMV=30 NaN/undefined=true",
+      "at": "2026-11-01T12:20:24.528Z"
+    },
+    {
+      "step": "U9 删除仍有商品的分类被拒：提示「请先移走商品」，分类保留",
+      "ok": false,
+      "detail": "delete={\"ok\":true,\"exact\":1} confirm={\"ok\":true,\"text\":\"删除\"} toast= 仍在=true",
+      "at": "2026-11-01T12:20:29.081Z"
+    }
+  ]
+}

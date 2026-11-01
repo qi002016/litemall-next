@@ -1,0 +1,89 @@
+{
+  "run": "20261101-2025",
+  "app": "http://127.0.0.1:5173",
+  "admin": "http://127.0.0.1:5174",
+  "api": "http://127.0.0.1:8000",
+  "at": "2026-11-01T12:17:52.142Z",
+  "fails": 8,
+  "total": 13,
+  "records": [
+    {
+      "step": "R0 夹具复位（删除旧分类/品牌、993001 归位、998221 评价清空、998018 复原 301）",
+      "ok": true,
+      "detail": "categoryRoots=19 brandHit=7 goodsUpdate=http=200/code=200 mysqlExit=0 mysql: [Warning] Using a password on the command line interface can be insecure.",
+      "at": "2026-11-01T12:16:44.961Z"
+    },
+    {
+      "step": "U1 后台登录（真实表单提交，跳转工作台，token 落 localStorage）",
+      "ok": true,
+      "detail": "path=/dashboard tokenLen=478",
+      "at": "2026-11-01T12:16:47.443Z"
+    },
+    {
+      "step": "U2-1 分类管理页新建一级分类「服饰」",
+      "ok": true,
+      "detail": "fill={\"ok\":true,\"val\":\"服饰\"} save={\"ok\":true,\"tag\":\"BUTTON\",\"text\":\"保存\"} toast=分类已创建 树含服饰=true",
+      "at": "2026-11-01T12:16:50.535Z"
+    },
+    {
+      "step": "U2-2 在「服饰」下新增子分类「上装」（两级）",
+      "ok": true,
+      "detail": "rowAction={\"ok\":true} fill={\"ok\":true,\"val\":\"上装\"} save={\"ok\":true,\"tag\":\"BUTTON\",\"text\":\"保存\"} toast=分类已创建 | 分类已创建 含二级标签=true",
+      "at": "2026-11-01T12:16:52.081Z"
+    },
+    {
+      "step": "U2-3 品牌管理页新建品牌 ACME 并出现在列表",
+      "ok": true,
+      "detail": "fill={\"ok\":true,\"val\":\"ACME\"} save={\"ok\":true,\"tag\":\"BUTTON\",\"text\":\"保存\"} toast=品牌已创建 列表含ACME=true",
+      "at": "2026-11-01T12:16:55.385Z"
+    },
+    {
+      "step": "U3-1 打开商品 993001 编辑弹窗",
+      "ok": false,
+      "detail": "rowAction={\"ok\":false,\"why\":\"no-row\",\"rowText\":\"素色圆领T恤\"} dialog=false",
+      "at": "2026-11-01T12:17:09.665Z"
+    },
+    {
+      "step": "U4 C 端买家登录（r2demo_buyer1 真实表单）",
+      "ok": false,
+      "detail": "path=/login tokenLen=0 toast=",
+      "at": "2026-11-01T12:17:13.696Z"
+    },
+    {
+      "step": "U5-1 C 端分类页 服饰 → 上装 可进入列表且能看到 993001",
+      "ok": false,
+      "detail": "click1={\"ok\":true,\"tag\":\"DIV\",\"text\":\"服饰\"} click2={\"ok\":false,\"why\":\"no-match\",\"t\":\"上装\"} url=/category 含T恤=false cards=0",
+      "at": "2026-11-01T12:17:19.041Z"
+    },
+    {
+      "step": "U5-2 价格升序：URL sort=price_asc 且列表价格单调不减",
+      "ok": false,
+      "detail": "click={\"ok\":false,\"why\":\"no-chip\"} url= prices=[] asc=true",
+      "at": "2026-11-01T12:17:20.858Z"
+    },
+    {
+      "step": "U5-3 筛选价格区间 50–100：minP=5000&maxP=10000，列表价格全在区间内",
+      "ok": false,
+      "detail": "open=false min=false max=false apply={\"ok\":false,\"why\":\"no-match\",\"t\":\"查看\"} url= prices=[] 共=null",
+      "at": "2026-11-01T12:17:24.193Z"
+    },
+    {
+      "step": "U5-4 加载更多后筛选/排序条件保持，且新数据仍在区间内",
+      "ok": false,
+      "detail": "before=0 after=0 url= kept=false prices=[]",
+      "at": "2026-11-01T12:17:26.399Z"
+    },
+    {
+      "step": "U5-5 商品详情页显示品牌 ACME",
+      "ok": false,
+      "detail": "含ACME=false 品牌字样=null 评价数=null",
+      "at": "2026-11-01T12:17:29.059Z"
+    },
+    {
+      "step": "UI 执行中断",
+      "ok": false,
+      "detail": "Error: 等待超时: 评价页\n    at waitFor (file:///D:/litemall-next/.dbwork/r2-accept/r2_ui.mjs:195:9)\n    at async uiPostReview (file:///D:/litemall-next/.dbwork/r2-accept/r2_ui.mjs:373:3)\n    at async file:///D:/litemall-next/.dbwork/r2-accept/r2_ui.mjs:494:3",
+      "at": "2026-11-01T12:17:52.110Z"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "tag": "20261101-200826",
+  "base": "http://127.0.0.1:8000",
+  "started_at": "2026-11-01 20:08:26",
+  "finished_at": "2026-11-01 20:08:28",
+  "env_ready": false,
+  "pass": 0,
+  "fail": 0,
+  "context": {},
+  "results": [],
+  "sql": [],
+  "http": [
+    {
+      "method": "GET",
+      "path": "/app/goods/list",
+      "http": 0,
+      "params": {
+        "pageNum": 1,
+        "pageSize": 1
+      },
+      "body": null,
+      "resp": {
+        "_error": "ConnectionError: HTTPConnectionPool(host='127.0.0.1', port=8000): Max retries exceeded with url: /app/goods/list?pageNum=1&pageSize=1 (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=8000): Failed to establish a new connection: [WinError 10061] 由于目标计算机积极拒绝，无法连接。\"))"
+      },
+      "elapsed_ms": 2041
+    }
+  ]
+}

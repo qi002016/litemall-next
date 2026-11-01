@@ -1,0 +1,3 @@
+run1 pages=25 pageNum=26 list_len=0 url=http://127.0.0.1:8000/app/goods/list?pageSize=3&sort=price_asc&minP=5000&maxP=10000&pageNum=26
+run2 pages=25 pageNum=26 list_len=0 url=http://127.0.0.1:8000/app/goods/list?pageSize=3&sort=price_asc&minP=5000&maxP=10000&pageNum=26
+run3 pages=25 pageNum=26 list_len=0 url=http://127.0.0.1:8000/app/goods/list?pageSize=3&sort=price_asc&minP=5000&maxP=10000&pageNum=26

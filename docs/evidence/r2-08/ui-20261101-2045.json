@@ -1,0 +1,23 @@
+{
+  "run": "20261101-2045",
+  "app": "http://127.0.0.1:5173",
+  "admin": "http://127.0.0.1:5174",
+  "api": "http://127.0.0.1:8000",
+  "at": "2026-11-01T12:43:51.098Z",
+  "fails": 1,
+  "total": 2,
+  "records": [
+    {
+      "step": "R0 夹具复位（删除旧分类/品牌、993001 归位、998221 评价清空、998018 复原 301）",
+      "ok": true,
+      "detail": "categoryRoots=19 brandHit=7 goodsUpdate=http=200/code=200 mysqlExit=0 mysql: [Warning] Using a password on the command line interface can be insecure.",
+      "at": "2026-11-01T12:43:28.573Z"
+    },
+    {
+      "step": "UI 执行中断",
+      "ok": false,
+      "detail": "Error: 等待超时: admin 登录表单\n    at waitFor (file:///D:/litemall-next/.dbwork/r2-accept/r2_ui.mjs:196:9)\n    at async uiLoginAdmin (file:///D:/litemall-next/.dbwork/r2-accept/r2_ui.mjs:232:3)\n    at async file:///D:/litemall-next/.dbwork/r2-accept/r2_ui.mjs:545:3",
+      "at": "2026-11-01T12:43:51.046Z"
+    }
+  ]
+}

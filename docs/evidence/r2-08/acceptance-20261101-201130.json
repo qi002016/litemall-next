@@ -1,0 +1,165 @@
+{
+  "tag": "20261101-201130",
+  "base": "http://127.0.0.1:8000",
+  "started_at": "2026-11-01 20:11:30",
+  "admin_user": "admin123",
+  "finished_at": "2026-11-01 20:11:31",
+  "env_ready": false,
+  "pass": 0,
+  "fail": 0,
+  "context": {},
+  "results": [],
+  "sql": [
+    {
+      "label": "连通性",
+      "sql": "SELECT VERSION() AS v, DATABASE() AS db",
+      "args": [],
+      "rows": [
+        {
+          "v": "8.0.46",
+          "db": "litemall"
+        }
+      ],
+      "affected": 1
+    }
+  ],
+  "http": [
+    {
+      "method": "GET",
+      "path": "/app/goods/list",
+      "http": 200,
+      "params": {
+        "pageNum": 1,
+        "pageSize": 1
+      },
+      "body": null,
+      "resp": {
+        "code": 200,
+        "msg": "OK",
+        "data": {
+          "total": "262",
+          "pages": "262",
+          "list": [
+            {
+              "brandId": "1001020",
+              "brief": "安心舒适是最好的礼物",
+              "categoryId": "1008008",
+              "displayPrice": 99900,
+              "id": "1181000",
+              "lockedUnavailable": false,
+              "minPrice": 99900,
+              "name": "母亲节礼物-舒适安睡组合",
+              "picUrl": "http://yanxuan.nosdn.127.net/1f67b1970ee20fd572b7202da0ff705d.png",
+              "soldOut": false,
+              "totalStock": 1000
+            }
+          ]
+        }
+      },
+      "elapsed_ms": 65
+    },
+    {
+      "method": "POST",
+      "path": "/admin/auth/login",
+      "http": 200,
+      "params": null,
+      "body": {
+        "username": "r2demo_admin",
+        "password": "admin123"
+      },
+      "resp": {
+        "code": 401,
+        "msg": "用户名或密码错误",
+        "data": {
+          "errorCode": "LOGIN_FAILED"
+        }
+      },
+      "elapsed_ms": 30
+    },
+    {
+      "method": "POST",
+      "path": "/admin/auth/login",
+      "http": 200,
+      "params": null,
+      "body": {
+        "username": "admin123",
+        "password": "admin123"
+      },
+      "resp": {
+        "code": 200,
+        "msg": "OK",
+        "data": {
+          "avatar": "https://wpimg.wallstcn.com/f778738c-e4f8-4870-b634-56703b4acafe.gif",
+          "id": "1",
+          "token": "<token:478>",
+          "username": "admin123"
+        }
+      },
+      "elapsed_ms": 94
+    },
+    {
+      "method": "POST",
+      "path": "/app/auth/login",
+      "http": 200,
+      "params": null,
+      "body": {
+        "username": "r2demo_buyer1",
+        "password": "qa123456"
+      },
+      "resp": {
+        "code": 400,
+        "msg": "用户名或密码错误",
+        "data": null
+      },
+      "elapsed_ms": 479
+    },
+    {
+      "method": "POST",
+      "path": "/app/auth/login",
+      "http": 200,
+      "params": null,
+      "body": {
+        "username": "r2demo_buyer1",
+        "password": "123456"
+      },
+      "resp": {
+        "code": 400,
+        "msg": "用户名或密码错误",
+        "data": null
+      },
+      "elapsed_ms": 82
+    },
+    {
+      "method": "POST",
+      "path": "/app/auth/login",
+      "http": 200,
+      "params": null,
+      "body": {
+        "username": "r2demo_buyer1",
+        "password": "r2demo123"
+      },
+      "resp": {
+        "code": 400,
+        "msg": "用户名或密码错误",
+        "data": null
+      },
+      "elapsed_ms": 94
+    },
+    {
+      "method": "POST",
+      "path": "/app/auth/login",
+      "http": 200,
+      "params": null,
+      "body": {
+        "username": "r2demo_buyer1",
+        "password": "admin123"
+      },
+      "resp": {
+        "code": 400,
+        "msg": "用户名或密码错误",
+        "data": null
+      },
+      "elapsed_ms": 87
+    }
+  ]
+}
