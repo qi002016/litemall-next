@@ -54,6 +54,9 @@ public class Topic implements Serializable {
     @Schema(description = "排序")
     private Integer sortOrder;
 
+    @Schema(description = "是否启用：1 启用 / 0 停用（需求 5.12 专题启停）")
+    private Boolean enabled;
+
     @Schema(description = "创建时间")
     private LocalDateTime addTime;
 

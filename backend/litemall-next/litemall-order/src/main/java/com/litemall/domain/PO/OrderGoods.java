@@ -62,6 +62,21 @@ public class OrderGoods implements Serializable {
     @Schema(description = "订单商品评论：-1 超期不能评价；0 可以评价；>0 评论ID")
     private Integer comment;
 
+    @Schema(description = "SKU 稳定码快照（BR-GOODS-07）")
+    private String skuCode;
+
+    @Schema(description = "已退数量（BR-AS-02）")
+    private Integer refundedNumber;
+
+    @Schema(description = "行退款状态：0 未退 / 1 部分退 / 2 全退（BR-AS-17）")
+    private Integer refundStatus;
+
+    @Schema(description = "行实付 = 行商品金额 - 分摊券额（7.2 / D9），单位元")
+    private BigDecimal actualAmount;
+
+    @Schema(description = "该行分摊券额（D9），单位元")
+    private BigDecimal couponShare;
+
     @Schema(description = "创建时间")
     private LocalDateTime addTime;
 

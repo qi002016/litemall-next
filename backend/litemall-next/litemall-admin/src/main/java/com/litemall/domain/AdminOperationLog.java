@@ -45,6 +45,12 @@ public class AdminOperationLog implements Serializable {
 
     private String comment;
 
+    /** 操作对象类型（BR-ADM-03） */
+    private String targetType;
+
+    /** 操作对象 ID（BR-ORDER-13） */
+    private Long targetId;
+
     private LocalDateTime addTime;
 
     private LocalDateTime updateTime;

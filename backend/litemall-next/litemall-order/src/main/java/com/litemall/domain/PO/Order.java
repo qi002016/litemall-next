@@ -119,6 +119,18 @@ public class Order implements Serializable {
     @Schema(description = "订单关闭时间")
     private LocalDateTime endTime;
 
+    @Schema(description = "归属商户，单商户期固定 1（BR-ADM-06）")
+    private Long merchantId;
+
+    @Schema(description = "未付款自动关闭时刻 = 下单时间 + 30min（BR-ORDER-06）")
+    private LocalDateTime expireTime;
+
+    @Schema(description = "关闭方式：1 用户取消 / 2 超时 / 3 运营立即关单（Q8）")
+    private Integer closeType;
+
+    @Schema(description = "C 端本人隐藏（BR-ORD-07），与逻辑删除 deleted 不同义")
+    private Boolean userDeleted;
+
     @Schema(description = "创建时间")
     private LocalDateTime addTime;
 

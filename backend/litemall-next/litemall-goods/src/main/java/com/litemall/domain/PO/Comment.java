@@ -54,6 +54,18 @@ public class Comment implements Serializable {
     @Schema(description = "评分， 1-5")
     private Integer star;
 
+    @Schema(description = "来源订单（BR-CM-01）")
+    private Long orderId;
+
+    @Schema(description = "来源订单行，唯一（BR-CM-01）")
+    private Long orderGoodsId;
+
+    @Schema(description = "商家回复时间（BR-CM-03）")
+    private LocalDateTime replyTime;
+
+    @Schema(description = "评价状态：0 显示 / 1 已隐藏（BR-CM-04）")
+    private Integer status;
+
     @Schema(description = "创建时间")
     private LocalDateTime addTime;
 

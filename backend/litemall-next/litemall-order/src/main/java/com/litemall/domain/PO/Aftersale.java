@@ -62,6 +62,36 @@ public class Aftersale implements Serializable {
     @Schema(description = "管理员操作时间")
     private LocalDateTime handleTime;
 
+    @Schema(description = "订单行（BR-AS-01）")
+    private Long orderGoodsId;
+
+    @Schema(description = "申请退款数量（BR-AS-02）")
+    private Integer number;
+
+    @Schema(description = "退货物流公司（BR-AS-08）")
+    private String returnShipCompany;
+
+    @Schema(description = "退货物流单号（BR-AS-08）")
+    private String returnShipSn;
+
+    @Schema(description = "用户填单号时间（BR-AS-08）")
+    private LocalDateTime returnShipTime;
+
+    @Schema(description = "运营确认收到退货时间（BR-AS-08/09）")
+    private LocalDateTime receiveTime;
+
+    @Schema(description = "关闭/驳回原因（BR-AS-10/22）")
+    private String closeReason;
+
+    @Schema(description = "审核操作人 admin.id（BR-ADM-03）")
+    private Long auditAdmin;
+
+    @Schema(description = "库存回补状态：0 未回补 / 1 已回补 / 2 待回补（BR-AS-12/16）")
+    private Integer restockStatus;
+
+    @Schema(description = "待寄回截止 = 同意时间 + 7 天（BR-AS-10）")
+    private LocalDateTime returnDeadline;
+
     @Schema(description = "创建时间")
     private LocalDateTime addTime;
 

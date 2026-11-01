@@ -28,6 +28,18 @@ class StockDeductBatchTest {
     /** 哨兵商品ID，避免与真实商品数据关联（该表无外键约束） */
     private static final long TEST_GOODS_ID = 999999;
 
+    /**
+     * 规格组合序号。
+     * <p>
+     * R1 数据模型给 {@code litemall_goods_product} 加了两个唯一键
+     * （{@code uk_goods_product_combo(goods_id, spec_value_ids)}、
+     * {@code uk_goods_product_sku_code(sku_code)}）。同一商品的多个 SKU 必须具有不同的规格组合，
+     * 因此夹具不能再用默认空串——否则同一 {@code goods_id} 下插入第二条即撞键。
+     * 这里用自增序号保证同一用例内、以及跨次运行都不重复。
+     */
+    private static final java.util.concurrent.atomic.AtomicInteger SPEC_SEQ =
+            new java.util.concurrent.atomic.AtomicInteger();
+
     @Autowired
     private GoodsInnerController goodsInnerController;
 
@@ -74,9 +86,14 @@ class StockDeductBatchTest {
     }
 
     private GoodsProduct insertProduct(int number) {
+        // 同一 goods_id 下每个 SKU 必须有唯一规格组合与唯一 sku_code（R1 新增的两个唯一键）
+        String specValueIds = String.valueOf(SPEC_SEQ.incrementAndGet());
+        String skuCode = TEST_GOODS_ID + "-" + specValueIds + "-" + System.nanoTime();
         GoodsProduct product = new GoodsProduct()
                 .setGoodsId(TEST_GOODS_ID)
                 .setSpecifications("[]")
+                .setSpecValueIds(specValueIds)
+                .setSkuCode(skuCode)
                 .setPrice(new BigDecimal("1.00"))
                 .setNumber(number)
                 .setAddTime(LocalDateTime.now())

@@ -46,6 +46,12 @@ public class GoodsProduct implements Serializable {
     @Schema(description = "商品货品图片")
     private String url;
 
+    @Schema(description = "SKU 稳定业务码（BR-GOODS-07），格式 goodsId-<specValueId 升序用_连接>")
+    private String skuCode;
+
+    @Schema(description = "规格值 ID 升序逗号串（BR-GOODS-02），形如 1,3")
+    private String specValueIds;
+
     @Schema(description = "创建时间")
     private LocalDateTime addTime;
 

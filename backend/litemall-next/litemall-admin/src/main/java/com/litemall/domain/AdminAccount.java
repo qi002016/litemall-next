@@ -37,6 +37,9 @@ public class AdminAccount implements Serializable {
 
     private String roleIds;
 
+    /** 账号状态：1 启用 / 0 禁用（需求 5.14） */
+    private Integer status;
+
     private LocalDateTime addTime;
 
     private LocalDateTime updateTime;

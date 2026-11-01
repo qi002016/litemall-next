@@ -56,6 +56,9 @@ public class Ad implements Serializable {
     @Schema(description = "是否启动")
     private Boolean enabled;
 
+    @Schema(description = "跳转类型：0 无跳转 / 1 商品 / 2 专题（BR-CMS-02）")
+    private Integer linkType;
+
     @Schema(description = "创建时间")
     private LocalDateTime addTime;
 

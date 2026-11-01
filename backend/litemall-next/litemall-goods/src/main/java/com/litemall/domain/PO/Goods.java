@@ -80,6 +80,12 @@ public class Goods implements Serializable {
     @Schema(description = "商品详细介绍，是富文本格式")
     private String detail;
 
+    @Schema(description = "归属商户，单商户期固定 1（BR-ADM-06）")
+    private Long merchantId;
+
+    @Schema(description = "商品状态：0 草稿 / 1 在售 / 2 已下架（需求 5.1；与 isOnSale 双向映射）")
+    private Integer status;
+
     @Schema(description = "创建时间")
     private LocalDateTime addTime;
 

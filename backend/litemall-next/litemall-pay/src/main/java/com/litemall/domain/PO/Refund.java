@@ -48,6 +48,12 @@ public class Refund implements Serializable {
     @Schema(description = "状态：0 处理中；1 成功；2 失败")
     private Integer status;
 
+    @Schema(description = "关联售后单（BR-AS-23）")
+    private Long aftersaleId;
+
+    @Schema(description = "退款完成时间（BR-RPT-05）")
+    private LocalDateTime refundTime;
+
     @Schema(description = "创建时间")
     private LocalDateTime addTime;
 
