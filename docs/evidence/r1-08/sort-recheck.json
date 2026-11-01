@@ -1,0 +1,122 @@
+{
+  "generatedAt": "2026-11-01 18:43:46",
+  "checks": [
+    {
+      "name": "默认列表有数据",
+      "ok": true,
+      "evidence": {
+        "total": 54,
+        "first3": [
+          {
+            "id": "54",
+            "orderSn": "20261101184311c5bab293",
+            "addTime": "2026-11-01 18:43:11",
+            "status": "undelivered"
+          },
+          {
+            "id": "52",
+            "orderSn": "20261101184310c5b830d9",
+            "addTime": "2026-11-01 18:43:10",
+            "status": "undelivered"
+          },
+          {
+            "id": "51",
+            "orderSn": "20261101184310c5b7cf53",
+            "addTime": "2026-11-01 18:43:10",
+            "status": "canceled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "默认列表 addTime 递减（新单在前）",
+      "ok": true,
+      "evidence": {
+        "first": "2026-11-01 18:43:11",
+        "last": "2026-11-01 18:12:23",
+        "n": 20
+      }
+    },
+    {
+      "name": "默认首条 = 全局最新单",
+      "ok": true,
+      "evidence": {
+        "first": {
+          "id": "54",
+          "orderSn": "20261101184311c5bab293",
+          "addTime": "2026-11-01 18:43:11",
+          "status": "undelivered"
+        },
+        "maxOnPage": "2026-11-01 18:43:11"
+      }
+    },
+    {
+      "name": "isAsc=true 显式升序生效（最旧在前）",
+      "ok": true,
+      "evidence": {
+        "first3": [
+          {
+            "id": "1",
+            "orderSn": "20260926140354399524",
+            "addTime": "2026-09-26 14:03:54",
+            "status": "canceled"
+          },
+          {
+            "id": "2",
+            "orderSn": "20261101165306c86abd11",
+            "addTime": "2026-11-01 16:53:06",
+            "status": "canceled"
+          },
+          {
+            "id": "3",
+            "orderSn": "20261101165324c86b3014",
+            "addTime": "2026-11-01 16:53:24",
+            "status": "canceled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "isAsc=false 与默认结果完全一致",
+      "ok": true,
+      "evidence": {
+        "defaultFirst3": [
+          "54",
+          "52",
+          "51"
+        ],
+        "descFirst3": [
+          "54",
+          "52",
+          "51"
+        ]
+      }
+    },
+    {
+      "name": "默认与显式 desc 的 total 一致",
+      "ok": true,
+      "evidence": {
+        "default": 54,
+        "desc": 54,
+        "asc": 54
+      }
+    },
+    {
+      "name": "待发货默认首页均 undelivered 且 addTime 倒序（S5 场景）",
+      "ok": true,
+      "evidence": {
+        "total": 25,
+        "first": {
+          "id": "54",
+          "orderSn": "20261101184311c5bab293",
+          "addTime": "2026-11-01 18:43:11",
+          "status": "undelivered"
+        },
+        "last": "2026-11-01 17:07:48",
+        "n": 20
+      }
+    }
+  ],
+  "total": 7,
+  "passed": 7
+}

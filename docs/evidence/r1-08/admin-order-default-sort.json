@@ -1,0 +1,47 @@
+{
+  "generatedAt": "2026-11-01T10:44:40.659Z",
+  "uiRows": [
+    {
+      "orderSn": "20261101184311c5bab293",
+      "addTime": "2026-11-01 18:43:11",
+      "status": "待发货"
+    },
+    {
+      "orderSn": "20261101184310c5b830d9",
+      "addTime": "2026-11-01 18:43:10",
+      "status": "待发货"
+    },
+    {
+      "orderSn": "20261101184310c5b7cf53",
+      "addTime": "2026-11-01 18:43:10",
+      "status": "已关闭"
+    }
+  ],
+  "pager": "共 54 条 10条/页 1 2 3 4 5 6 前往 页",
+  "apiDefault": {
+    "total": "54",
+    "first3": [
+      {
+        "id": "54",
+        "orderSn": "20261101184311c5bab293",
+        "addTime": "2026-11-01 18:43:11"
+      },
+      {
+        "id": "52",
+        "orderSn": "20261101184310c5b830d9",
+        "addTime": "2026-11-01 18:43:10"
+      },
+      {
+        "id": "51",
+        "orderSn": "20261101184310c5b7cf53",
+        "addTime": "2026-11-01 18:43:10"
+      }
+    ]
+  },
+  "listRequests": [
+    "http://127.0.0.1:5174/admin/order/list?pageNum=1&pageSize=5&status=undelivered",
+    "http://127.0.0.1:5174/admin/order/list?pageNum=1&pageSize=10",
+    "http://127.0.0.1:5174/admin/order/list?pageNum=1&pageSize=10"
+  ],
+  "fails": 0
+}

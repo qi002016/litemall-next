@@ -1,0 +1,106 @@
+==== R1-08 端到端验收 开始 2026-11-01 18:43:03 ====
+· admin 登录成功 token 长度 467
+· 使用类目 categoryId=1005007，图片 http://yanxuan.nosdn.127.net/658f09b7ec522d31742b47b914d64338.png
+· 买家注册 qa784202 mobile=13929783915 userId=45 addressId=37
+· 领券 couponId=1 http=200 code=200 status=PROCESSING
+· 领券 couponId=2 http=200 code=200 status=PROCESSING
+· 买家持券 couponId→couponUserId： {1: 15, 2: 16}
+---------- S1 ----------
+[PASS] S1 后台商品列表出现新商品 :: goodsId=1181024 命中 5 行；row={"addTime": "2026-11-01 18:43:07", "brandId": null, "brandName": null, "brief": "R1-08 端到端验收用商品（两规格两 SKU）", "categoryId": "1005007", "categoryName": "锅具", "counterPrice": 0, "detail": "<p>R1-08 验收商品</p>", "displayPrice": 9900, "gallery": [], "id": "1181024", "
+[PASS] S1 列表展示价 99 元（9900 分） :: displayPrice=9900 status=1 statusText=在售
+[PASS] S1 列表 SKU 数=2（两规格各占一行） :: skuCount=2 totalStock=18
+[PASS] S1 详情返回 2 个规格维度 :: specs=[{"name": "颜色", "values": [{"picUrl": "", "value": "黑色", "valueId": "289"}, {"picUrl": "", "value": "白色", "valueId": "290"}]}, {"name": "尺码", "values": [{"picUrl": "", "value": "L", "valueId": "291"}, {"picUrl": "", "value": "M", "valueId": "292"}]}]
+[PASS] S1 详情 SKU 矩阵 2 行（每组合一行） :: skus=[{"id": "399", "price": 9900, "sellable": 10, "specText": "黑色 / L", "skuCode": "1181024-289_291"}, {"id": "400", "price": 9900, "sellable": 8, "specText": "白色 / M", "skuCode": "1181024-290_292"}]
+[PASS] S1 黑色/L 与 白色/M 两行可辨识 :: 黑色/L skuId=399 白色/M skuId=400 specTexts=['黑色 / L', '白色 / M']
+---------- S2 ----------
+[PASS] S2 C 端搜「T恤」命中新商品 :: 命中 5 行，含目标商品=True；[{"id": "1181024", "name": "R1验收T恤-1793529787", "displayPrice": 9900}, {"id": "1181023", "name": "R1验收T恤-1793529123", "displayPrice": 9900}, {"id": "1181022", "name": "R1验收T恤-1793528005", "displayPrice": 9900}]
+[PASS] S2 选黑色/L 价格与库存随规格变化 :: 黑色/L price/sellable=(9900, 10) 白色/M=(9900, 8)
+[PASS] S2 未选规格（无 specId）后端拒绝加购 :: http=200 code=400 msg=规格ID不能为空 errorCode=PARAM_INVALID
+---------- S3 ----------
+[PASS] S3 购物车两行（黑色/L、白色/M） :: rows=[{"id": "62", "goodsId": "1181024", "spec": "黑色 / L", "specText": null, "number": 1, "price": 99.0}, {"id": "63", "goodsId": "1181024", "spec": "白色 / M", "specText": null, "number": 1, "price": 99.0}]
+[PASS] S3 两行规格文字可辨 :: specTexts=['黑色 / L', '白色 / M']
+---------- S4 ----------
+[PASS] S4 试算可用券并扣减 5 元 :: goodsAmount=19800 couponAmount=500 freightAmount=0 orderAmount=19300
+[PASS] S4 提交订单成功 :: orderId=49 orderSn=20261101184308c5b52743 orderAmount=19300 expireTime=2026-11-01 19:13:08
+[PASS] S4 演示支付成功（demo=true） :: demo=True payResult=success result.status=paid payId=wxmock49
+[PASS] S4 订单进入待发货(102/undelivered) :: status=undelivered statusText=待发货 orderAmount=19300 couponAmount=500
+[PASS] S4 券后金额正确（19300 分 = 198-5） :: goodsAmount=19800 couponAmount=500 orderAmount=19300
+---------- S5 ----------
+[PASS] S5 后台待发货列表含该单 :: status=undelivered 命中 20 行；row={"addTime": "2026-11-01 18:43:08", "aftersaleStatus": null, "aftersaleStatusText": null, "fullyRefunded": false, "goodsSummary": "R1验收T恤-1793529787 等 2 件", "id": "49", "orderAmount": 19300, "orderSn": "20261101184308c5b52743", "refundedAmount": 0, "status": "undelivered", "statusText": "待发货", "userI
+[PASS] S5 后台金额与 C 端一致 :: admin.orderAmount=19300 C 端=19300 statusText=待发货 addTime=2026-11-01 18:43:08
+[PASS] S5 出参 status 为标识（undelivered） :: status=undelivered statusText=待发货
+---------- S6 ----------
+[PASS] S6 发货后 C 端状态已发货(201) :: status=shipped statusText=已发货 shipChannel=顺丰速运 shipSn=SF1080000001 shipTime=2026-11-01 18:43:09
+[PASS] S6 C 端可见物流公司与单号 :: shipChannel=顺丰速运 shipSn=SF1080000001
+---------- S7 ----------
+[PASS] S7 确认收货后状态已收货(301) :: status=confirmed statusText=已收货 confirmTime=None
+[PASS] S7 订单行出现「申请售后」入口（canApply.types 非空） :: lines=[{"orderGoodsId": "54", "specText": "黑色 / L", "number": 1, "refundStatus": 0, "canApply": {"maxQty": 1, "reason": null, "types": [1, 2]}}, {"orderGoodsId": "55", "specText": "白色 / M", "number": 1, "refundStatus": 0, "canApply": {"maxQty": 1, "reason": null, "types": [1, 2]}}]
+[PASS] S7 黑色/L 行 canApply 含退货退款(2) :: black line={"actualAmount": 9650, "canApply": {"maxQty": 1, "reason": null, "types": [1, 2]}, "couponShare": 250, "goodsName": "R1验收T恤-1793529787", "number": 1, "orderGoodsId": "54", "price": 9900, "productId": "399", "refundStatus": 0, "refundStatusText": "未退款", "refundedNumber": 0, "specText": "黑色 / L"}
+---------- S8 ----------
+[PASS] S8 对黑色/L 行申请「退货退款」成功 :: aftersaleId=15 apply={"aftersaleId": "15", "aftersaleSn": "AS20261101110847", "amount": 9650, "applyTime": "2026-11-01 18:43:09", "number": 1, "orderGoodsId": "54", "orderId": "49", "status": "applied", "statusText": "申请中", "type": 2, "typeText": "退货退款"}
+[PASS] S8 售后单进度「申请中」(applied) :: status=applied statusText=申请中 type=2 amount=9650 images=['https://dummyimage.com/600x600/cccccc/000000&text=QA-proof']
+[PASS] S8 C 端我的售后可见该单 :: list=[{"aftersaleId": "15", "id": null, "status": "applied", "statusText": "申请中"}]
+[PASS] S8 支付后实扣：黑色/L 9、白色/M 7 :: 黑色/L number=9 白色/M number=7
+---------- S9 ----------
+[PASS] S9 后台同意退货并给出退货地址 :: status=waitReturn statusText=待寄回 returnAddress=浙江省杭州市西湖区文三路 1 号 退货组（收）0571-88888888 returnDeadline=2026-11-08 18:43:09
+[PASS] S9 用户填写退货单号 → 待收货(waitReceive) :: status=waitReceive statusText=待收货 returnShipCompany=None returnShipSn=None
+[PASS] S9 运营确认收货 → 退款中(refunding) :: status=refunding statusText=退款中
+[PASS] S9 退款完成（completed + restockStatus=1） :: status=completed refundId=10 refundAmount=9650 restockStatus=1 restockPending=False
+[PASS] S9 售后单终态「退款完成」 :: status=completed statusText=退款完成 refundTime=2026-11-01 18:43:10
+[PASS] S9 订单行「已退款」(refundStatus=2) :: black line={"actualAmount": 9650, "canApply": {"maxQty": 0, "reason": "该行已全额退款", "types": []}, "couponShare": 250, "goodsName": "R1验收T恤-1793529787", "number": 1, "orderGoodsId": "54", "price": 9900, "productId": "399", "refundStatus": 2, "refundStatusText": "已全额退款", "refundedNumber": 1, "specText": "黑色 / L"}
+[PASS] S9 订单主状态仍「已收货」(301/confirmed) :: status=confirmed statusText=已收货 fullyRefunded=False refundedAmount=9650
+---------- S10 ----------
+[PASS] S10 库存视图两行规格齐全 :: rows=[{"productId": "400", "specText": "白色 / M", "number": 7, "locked": 0, "sellable": 7, "lowStock": false, "lowStockThreshold": 5}, {"productId": "399", "specText": "黑色 / L", "number": 10, "locked": 0, "sellable": 10, "lowStock": false, "lowStockThreshold": 5}]
+[PASS] S10 退货行 黑色/L 实际与可售均由 9 回到 10 :: 黑色/L number=10 sellable=10 locked=0
+[PASS] S10 未退行 白色/M 保持 7 :: 白色/M number=7 sellable=7 locked=0
+---------- S11 ----------
+[PASS] S11 新单未付款、锁量已占用 :: orderId=50 status=101 couponPrice=10.00 orderPrice=89.00 locked=1
+[PASS] S11 订单转为已关闭(103) :: status=103 closeType=3 endTime=2026-11-01 18:43:10
+[PASS] S11 锁定库存释放（locked 1→0，可售恢复 10） :: locked=0 number=10
+[PASS] S11 券退回「未使用」 :: couponUserId=16 status=0 orderId=None usedTime=None
+[PASS] S11 操作日志记录了该次关单（谁/何时/哪一单） :: log={"id": 482, "admin": "1", "type": null, "action": "order:close", "target_type": "order", "target_id": 50, "comment": null, "add_time": "2026-11-01 18:43:10"}
+---------- S12 ----------
+· S12 观察：用户取消订单 51 未写 order:close 操作日志（CI-85 契约未要求操作日志，仅 CN-10/CN-11 要求；不作为断言）
+[PASS] S12 用户取消后订单已关闭(103, close_type=1) :: status=103 closeType=1 endTime=2026-11-01 18:43:10
+[PASS] S12 取消与关单结果一致：锁量 1→0、可售恢复 10 :: locked=0 number=10
+[PASS] S12 取消后券退回「未使用」 :: couponUserId=16 status=0 orderId=None
+[PASS] S12 取消同样留操作日志 :: （信息项）用户取消不写 order:close 日志；CI-85 契约未要求，不判缺陷。log=NO LOG
+[PASS] S12 与第 11 步结果一致（同一套释放逻辑） :: compare: S11 status=103/locked=0/coupon=0 ; S12 status=103/locked=0/coupon=0
+---------- S13 ----------
+[PASS] S13 演示支付失败分支返回 fail :: demo=True payResult=fail
+[PASS] S13 订单仍「未付款」(101/unpaid) :: status=unpaid statusText=未付款 payResult.status=unpaid
+[PASS] S13 支付结果仍为 unpaid :: payResult={"expireTime": null, "orderId": "52", "orderStatus": 101, "orderStatusText": "未付款", "payId": null, "payTime": null, "result": "pending", "status": "unpaid"}
+[PASS] S13 失败后可重试并支付成功 :: retry demo=True payResult.status=paid order.status=undelivered statusText=待发货
+---------- REG-30 ----------
+[PASS] REG-30 时间篡改：把该单下单/过期时间回拨 31 分钟（等价于时间前进 31 分钟） :: orderId=53 原 expireTime=2026-11-01 19:13:11 → 篡改后 expire_time=2026-11-01 18:12:10，locked=1，券状态=1
+[PASS] REG-30 dryRun 预演命中该超时单且不改状态 :: dryRun={"failed": 0, "items": [{"id": "53", "ok": true, "reason": "dryRun：未落库"}], "succeeded": 1, "total": 1}
+[PASS] REG-30 超时单自动转「已关闭」(103, close_type=2) :: status=103 closeType=2 endTime=2026-11-01 18:43:11 批量结果={"failed": 0, "items": [{"id": "53", "ok": true, "reason": null}], "succeeded": 1, "total": 1}
+[PASS] REG-30 与第 11 步结果一致：锁量释放 + 券退回 + 日志 :: locked=0 coupon.status=0 coupon.orderId=None log={"id": 485, "admin": null, "type": null, "action": "order:close-expired", "target_type": "order", "target_id": 53, "comment": null, "add_time": "2026-11-01 18:43:11"}
+[PASS] REG-30 已关闭订单不可再支付（CI-103 拒绝且状态仍 103） :: pay http=200 code=409 msg=该订单无需支付 errorCode=ORDER_NOT_PAYABLE orderStatus=103
+---------- REG-1 ----------
+[PASS] REG-1 status=closed 非法标识不得静默返回全部订单 :: http=200 code=400 msg=status 取值非法：closed errorCode=PARAM_INVALID rows=0
+[PASS] REG-1 status=canceled 只返回已关闭单（103→canceled） :: 命中 20 行，非 canceled=0，含 S11 单=True、含 S12 单=True；[{"id": "51", "status": "canceled", "statusText": "已关闭", "closeType": null}, {"id": "50", "status": "canceled", "statusText": "已关闭", "closeType": null}, {"id": "45", "status": "canceled", "statusText": "已关闭", "closeType": null}, {"id": "44", "status": "canceled", "statusText": "已关闭", "closeType": null}, {"id": "39", "status": "canceled", "statusText": "已关闭", "closeType": null}]
+---------- REG-2 ----------
+[PASS] REG-2 仅退款同意后进入退款中(refunding) :: aftersaleId=16 status=refunding statusText=退款中
+[PASS] REG-2 第二行退款完成，订单 fullyRefunded=true :: status=completed refundAmount=9650 restockStatus=1
+[PASS] REG-2 订单详情 fullyRefunded=true 且主状态仍 confirmed :: fullyRefunded=True status=confirmed refundedAmount=19300
+[PASS] REG-2 全退款订单不出现在 C 端「已完成」tab :: finished 命中 0 单：[]
+[PASS] REG-2 全退款订单不出现在 C 端「待评价」tab :: unreviewed 命中 0 单：[]
+[PASS] REG-2 全退款订单仍保留在后台「已收货」主状态列表（信息项，主状态不变） :: admin status=confirmed 命中 5 单，含该单=True（03:130 主状态不变）
+---------- REG-3 ----------
+[PASS] REG-3 /inner/** 无令牌必须非 2xx :: http=401 body={"code": 401, "msg": "内部接口鉴权失败", "data": null}（鉴权层 401 无 errorCode 属已知边界）
+[PASS] REG-3 /inner/** 业务失败非 2xx 且带 errorCode :: http=400 code=400 msg=请求参数处理异常 errorCode=PARAM_INVALID
+[PASS] REG-3 /inner/** 参数类型错误非 2xx 且带 errorCode :: http=400 code=400 msg=请求参数处理异常 errorCode=PARAM_INVALID
+---------- REG-4 ----------
+[PASS] REG-4 首次回调 200 + applied=true，订单转已支付 :: http=200 applied=True deducted=True orderStatus=102 库存 9→8
+[PASS] REG-4 重复回调 200 + applied=false（不得 409） :: http=200 code=None applied=False deducted=False msg=None
+[PASS] REG-4 重复回调不重复扣库存 :: 库存 9→8（期望只扣 1 件）
+[PASS] REG-4 订单支付结果 paid、payId 一致 :: status=paid payId=qadup54 orderStatus=102
+[PASS] REG-4 （信息项）CI-97 成功出参为裸 DTO，与 07 §6.3 的 data envelope 示例不同（行为不受影响） :: raw={"applied": true, "deducted": true, "shortage": []}
+---------- REG-5 ----------
+[PASS] REG-5 /admin 业务异常 HTTP200 + code 非 200 + data.errorCode :: http=200 code=404 msg=订单不存在 errorCode=ORDER_NOT_FOUND
+[PASS] REG-5 /app 业务异常 HTTP200 + code 非 200 + data.errorCode :: http=200 code=404 msg=商品不存在 errorCode=RESOURCE_NOT_FOUND
+[PASS] REG-5 参数非法 400 带 data.errorCode=PARAM_INVALID :: http=200 code=400 msg=status 取值非法：bogus errorCode=PARAM_INVALID
+==== 汇总：76/76 断言通过 ====
+· 证据写入 D:\litemall-next\docs\evidence\r1-08\acceptance-result.json
+· 日志写入 D:\litemall-next\docs\evidence\r1-08\acceptance-log.txt
