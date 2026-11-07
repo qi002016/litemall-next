@@ -16,6 +16,14 @@ spring:
       - optional:file:./application-local.yaml
       - optional:file:./config/application-local.yaml
       - optional:file:../application-local.yaml
+
+# R4-MQ：订单超时关单（延时消息 + 兜底扫描）。地址与 marketing 一致，由 HM_ROCKETMQ_ADDR 注入。
+rocketmq:
+  name-server: ${HM_ROCKETMQ_ADDR:192.168.96.129:9876}
+  producer:
+    group: litemall-order-producer-group
+    send-message-timeout: 3000
+    retry-times-when-send-failed: 2
   datasource:
     url: jdbc:mysql://${hm.db.host:127.0.0.1}:${hm.db.port:3306}/${hm.db.name:litemall}?useUnicode=true&characterEncoding=UTF-8&autoReconnect=true&serverTimezone=Asia/Shanghai
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -83,6 +91,18 @@ hm:
   # H3：/inner/** 内部调用共享密钥，由环境变量 HM_INTERNAL_TOKEN 注入
   internal:
     token: ${HM_INTERNAL_TOKEN:}
+  order:
+    # 未付款保留时长（分钟），同时决定 expire_time 与延时消息等级
+    expire-minutes: ${HM_ORDER_EXPIRE_MINUTES:30}
+    timeout-mq:
+      # false = 完全不投递延时消息，退化为纯兜底扫描
+      enabled: ${HM_ORDER_TIMEOUT_MQ_ENABLED:true}
+    timeout-scan:
+      # false = 关闭内置兜底扫描（改用外部调度统一打 CN-11）
+      enabled: ${HM_ORDER_TIMEOUT_SCAN_ENABLED:true}
+      initial-ms: ${HM_ORDER_TIMEOUT_SCAN_INITIAL_MS:60000}
+      # 扫描周期，默认 5 分钟
+      ms: ${HM_ORDER_TIMEOUT_SCAN_MS:300000}
 
 ---
 # M12：prod profile 强制连接配置中心（去掉 optional 语义）——Nacos 不可达即启动失败，

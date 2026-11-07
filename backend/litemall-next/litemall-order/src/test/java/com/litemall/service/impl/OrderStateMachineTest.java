@@ -22,6 +22,7 @@ import com.litemall.mapper.OrderGoodsMapper;
 import com.litemall.mapper.OrderLogMapper;
 import com.litemall.mapper.OrderMapper;
 import com.litemall.mapper.OrderStatsMapper;
+import com.litemall.mq.OrderTimeoutPublisher;
 import com.litemall.utils.UserContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -71,13 +72,15 @@ class OrderStateMachineTest {
     private MarketingClient marketingClient;
     @Mock
     private StringRedisTemplate stringRedisTemplate;
+    @Mock
+    private OrderTimeoutPublisher orderTimeoutPublisher;
 
     private OrderServiceImpl orderService;
 
     @BeforeEach
     void setUp() {
         orderService = new OrderServiceImpl(cartMapper, orderGoodsMapper, aftersaleMapper, orderLogMapper,
-                orderStatsMapper, goodsClient, userClient, marketingClient, stringRedisTemplate);
+                orderStatsMapper, goodsClient, userClient, marketingClient, stringRedisTemplate, orderTimeoutPublisher);
         ReflectionTestUtils.setField(orderService, "baseMapper", orderMapper);
         ReflectionTestUtils.setField(orderService, "entityClass", Order.class);
         UserContext.setUser(1L);

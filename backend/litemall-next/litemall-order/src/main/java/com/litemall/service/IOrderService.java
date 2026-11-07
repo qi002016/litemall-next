@@ -156,6 +156,17 @@ public interface IOrderService extends IService<Order> {
     CloseExpiredResultDTO adminCloseExpired(Integer limit, Boolean dryRun);
 
     /**
+     * R4-MQ 单笔超时关单（延时消息消费端调用，幂等）。
+     * <p>仅当订单存在、{@code order_status=101} 且 {@code now >= expire_time} 时执行
+     * {@code 101 → 103}（close_type=2，日志 action={@code order:close-expired}）；
+     * 其余情况（不存在 / 已支付 / 已关闭 / 未到期 / 并发被抢）一律返回 false，不抛异常。</p>
+     *
+     * @param orderId 订单 ID
+     * @return true = 本次真的关闭了该单
+     */
+    boolean closeExpiredOrder(Long orderId);
+
+    /**
      * CN-12 修改物流：仅 201 且改过 0 次（litemall_log 计数）。
      *
      * @param dto 订单ID + 新快递信息 + 原因

@@ -14,6 +14,7 @@ import com.litemall.mapper.CartMapper;
 import com.litemall.mapper.OrderGoodsMapper;
 import com.litemall.mapper.OrderLogMapper;
 import com.litemall.mapper.OrderStatsMapper;
+import com.litemall.mq.OrderTimeoutPublisher;
 import com.litemall.mapper.OrderMapper;
 import com.litemall.utils.UserContext;
 import org.junit.jupiter.api.AfterEach;
@@ -70,6 +71,8 @@ class OrderIdempotentTest {
     @Mock
     private StringRedisTemplate stringRedisTemplate;
     @Mock
+    private OrderTimeoutPublisher orderTimeoutPublisher;
+    @Mock
     private ValueOperations<String, String> valueOperations;
     @Mock
     private OrderMapper orderMapper;
@@ -79,7 +82,7 @@ class OrderIdempotentTest {
     @BeforeEach
     void setUp() {
         orderService = new OrderServiceImpl(cartMapper, orderGoodsMapper, aftersaleMapper, orderLogMapper, orderStatsMapper,
-                goodsClient, userClient, marketingClient, stringRedisTemplate);
+                goodsClient, userClient, marketingClient, stringRedisTemplate, orderTimeoutPublisher);
         ReflectionTestUtils.setField(orderService, "baseMapper", orderMapper);
         ReflectionTestUtils.setField(orderService, "entityClass", com.litemall.domain.PO.Order.class);
         UserContext.setUser(1L);

@@ -58,6 +58,7 @@ import com.litemall.mapper.CartMapper;
 import com.litemall.mapper.OrderGoodsMapper;
 import com.litemall.mapper.OrderLogMapper;
 import com.litemall.mapper.OrderMapper;
+import com.litemall.mq.OrderTimeoutPublisher;
 import com.litemall.mapper.OrderStatsMapper;
 import com.litemall.service.IOrderService;
 import com.litemall.support.Money;
@@ -67,6 +68,7 @@ import com.litemall.utils.UserContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.seata.spring.annotation.GlobalTransactional;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -118,9 +120,6 @@ import java.util.stream.Collectors;
 public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements IOrderService {
 
     private static final DateTimeFormatter DT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-
-    /** 未付款自动关闭时长（BR-ORDER-06 / 07 §2.2） */
-    private static final long EXPIRE_MINUTES = 30L;
 
     /** 单笔订单最多行数（CI-80/CI-82 ORDER_ITEM_LIMIT） */
     private static final int MAX_ITEM_LINES = 50;
@@ -210,6 +209,11 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     private final UserClient userClient;
     private final MarketingClient marketingClient;
     private final StringRedisTemplate stringRedisTemplate;
+    private final OrderTimeoutPublisher orderTimeoutPublisher;
+
+    /** R4-MQ：未付款保留时长，与 {@code expire_time}、延时消息等级共用同一来源。 */
+    @Value("${hm.order.expire-minutes:30}")
+    private long expireMinutes = 30L;
 
     /* ==================================================================== */
     /* ==================== C 端：CI-80 / CI-82 / CI-83 ==================== */
@@ -344,11 +348,13 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 .setComments(0)
                 .setMerchantId(1L)
                 .setUserDeleted(false)
-                .setExpireTime(now.plusMinutes(EXPIRE_MINUTES))
+                .setExpireTime(now.plusMinutes(expireMinutes))
                 .setAddTime(now)
                 .setUpdateTime(now)
                 .setDeleted(false);
         saveOrder(order);
+        // R4-MQ：事务提交后投递 30 分钟延时消息；投递失败不影响下单，由兜底扫描关单
+        orderTimeoutPublisher.publishAfterCommit(order.getId(), order.getExpireTime());
 
         for (int i = 0; i < drafts.size(); i++) {
             DraftLine d = drafts.get(i);
@@ -896,6 +902,41 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         result.setSucceeded(succeeded);
         result.setFailed(failed);
         return result;
+    }
+
+    @Override
+    @GlobalTransactional(rollbackFor = Exception.class)
+    public boolean closeExpiredOrder(Long orderId) {
+        if (orderId == null) {
+            return false;
+        }
+        Order order = orderMapper().selectOne(new LambdaQueryWrapper<Order>()
+                .eq(Order::getId, orderId)
+                .eq(Order::getOrderStatus, OrderStatus.UNPAID)
+                .eq(Order::getDeleted, false));
+        if (order == null) {
+            // 已支付/已关闭/不存在：消息重复投递的常态，直接 ACK
+            log.info("[MQ] 超时关单跳过：订单不存在或已非未付款状态。orderId={}", orderId);
+            return false;
+        }
+        if (order.getExpireTime() != null && LocalDateTime.now().isBefore(order.getExpireTime())) {
+            // 消息比 expire_time 早到（延时等级按秒取整、DATETIME 秒级截断、Broker 与时序抖动都会造成
+            // 提前几百毫秒投递）。此时若直接 ACK，订单就永远不会被这条消息关掉 —— 必须补投一条更短的
+            // 延时消息自我纠偏；每轮 remain 递减，最多再跳一次（remain<1s 时 delayLevel=1）即收敛。
+            log.info("[MQ] 超时关单消息提前到达，补投一条短延时消息。orderId={}, expireTime={}", orderId,
+                    order.getExpireTime());
+            orderTimeoutPublisher.publishAfterCommit(orderId, order.getExpireTime());
+            return false;
+        }
+        try {
+            closeUnpaidOrder(order, OrderStatus.CLOSE_TIMEOUT, null, LOG_CLOSE_EXPIRED,
+                    "超时未支付，MQ 延时消息自动关闭", "订单状态已变更，无需关单");
+            return true;
+        } catch (ConflictException e) {
+            // 与支付/兜底扫描并发：CAS 101→103 失败，说明已有人处理
+            log.info("[MQ] 超时关单并发已被处理，跳过。orderId={}", orderId);
+            return false;
+        }
     }
 
     @Override

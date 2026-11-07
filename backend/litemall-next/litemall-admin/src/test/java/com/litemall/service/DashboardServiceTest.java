@@ -1,5 +1,7 @@
 package com.litemall.service;
 
+import com.litemall.support.StatsPeriod;
+
 import com.litemall.client.GoodsClient;
 import com.litemall.client.OrderClient;
 import com.litemall.client.UserClient;
@@ -14,6 +16,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -140,7 +143,8 @@ class DashboardServiceTest {
     @DisplayName("趋势补零：订单域只回 2 天，输出仍是完整 7 天且缺失日为 0")
     void trendZeroFilled() {
         OrderAdminStatsDTO dto = stats(new BigDecimal("9900"), 1L, 0L, BigDecimal.ZERO);
-        dto.setTrend(List.of(trend("2026-10-31", 1L, new BigDecimal("9900"))));
+        String inWindow = LocalDate.now(StatsPeriod.ZONE).minusDays(3).toString();
+        dto.setTrend(List.of(trend(inWindow, 1L, new BigDecimal("9900"))));
         when(orderClient.adminOrderStats("7d")).thenReturn(dto);
         when(goodsClient.adminCountGoods()).thenReturn(1L);
         when(userClient.adminCountUsers()).thenReturn(1L);
