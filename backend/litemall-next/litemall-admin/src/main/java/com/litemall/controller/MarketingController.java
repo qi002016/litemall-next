@@ -6,7 +6,9 @@ import com.litemall.domain.Result;
 import com.litemall.domain.dto.AdDTO;
 import com.litemall.domain.dto.CouponDTO;
 import com.litemall.domain.dto.TopicDTO;
+import com.litemall.exception.BadRequestException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -73,12 +75,14 @@ public class MarketingController {
 
     @PostMapping("/ad/create")
     public Result<Void> adCreate(@RequestBody AdDTO ad) {
+        normalizeAdForWrite(ad);
         marketingClient.adminCreateAd(ad);
         return Result.ok();
     }
 
     @PutMapping("/ad/update")
     public Result<Void> adUpdate(@RequestBody AdDTO ad) {
+        normalizeAdForWrite(ad);
         marketingClient.adminUpdateAd(ad);
         return Result.ok();
     }
@@ -115,5 +119,31 @@ public class MarketingController {
     public Result<Void> topicDelete(@RequestParam Long id) {
         marketingClient.adminDeleteTopic(id);
         return Result.ok();
+    }
+
+    /**
+     * 广告写入口的跳转参数校验放在 Controller（§3.3：Controller 只做参数校验与装配），
+     * 让 /admin/** 直接拿到 400 PARAM_INVALID，不必绕一圈 Feign 再解码；
+     * marketing 服务内还有一层同规则校验兜底，防止其它服务直调 /inner/** 绕过。
+     * AdDTO 新增的 linkType/sortOrder 由 Jackson 原样透传，无需在这里逐字段搬运。
+     */
+    private void normalizeAdForWrite(AdDTO ad) {
+        if (ad == null || ad.getLinkType() == null) {
+            return;
+        }
+        int linkType = ad.getLinkType();
+        if (linkType != 0 && linkType != 1 && linkType != 2) {
+            throw new BadRequestException("跳转类型只能是 0/1/2", BadRequestException.PARAM_INVALID);
+        }
+        if (linkType == 0) {
+            // 无跳转：清掉脏链接，避免把小程序路径带进库（D4/D8）
+            ad.setLink(null);
+            return;
+        }
+        String link = ad.getLink() == null ? null : ad.getLink().trim();
+        if (!StringUtils.hasText(link) || !link.matches("\\d+")) {
+            throw new BadRequestException("跳转目标ID必须是非空数字", BadRequestException.PARAM_INVALID);
+        }
+        ad.setLink(link);
     }
 }

@@ -174,13 +174,17 @@
 
       <div class="c-actionbar">
         <div class="row" style="flex: none; gap: 2px; text-align: center">
-          <div style="font-size: 10.5px; color: var(--text-2); padding: 0 8px" @click="toast('客服为占位入口（需求未定义会话能力）')">
+          <div style="font-size: 10.5px; color: var(--text-2); padding: 0 8px" @click="askAi">
             <AppIcon name="comment" :size="19" />
-            <div>客服</div>
+            <div>问 AI</div>
           </div>
-          <div style="font-size: 10.5px; color: var(--text-2); padding: 0 8px" @click="toast('收藏功能不在 R1 范围（R3 开放）')">
-            <AppIcon name="star" :size="19" />
-            <div>收藏</div>
+          <div
+            style="font-size: 10.5px; padding: 0 8px"
+            :style="{ color: collected ? 'var(--brand)' : 'var(--text-2)' }"
+            @click="toggleCollect"
+          >
+            <AppIcon name="star" :size="19" :class="{ 'fav-on': collected }" />
+            <div>{{ collected ? '已收藏' : '收藏' }}</div>
           </div>
         </div>
         <button type="button" class="btn" style="flex: 1" :disabled="adding" @click="addCart">加入购物车</button>
@@ -204,7 +208,9 @@ import PriceText from '@/components/PriceText.vue'
 import QtyStepper from '@/components/QtyStepper.vue'
 import { goodsDetail, commentList } from '@/api/goods'
 import { cartAdd } from '@/api/cart'
+import { collectAdd } from '@/api/user'
 import { useAppStore } from '@/store/app'
+import { useUserStore } from '@/store/user'
 import { setBuyNow } from '@/store/checkout'
 import { toast } from '@/utils/toast'
 import { yuan } from '@/utils/format'
@@ -213,11 +219,14 @@ import { mediaUrl } from '@/utils/media'
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const userStore = useUserStore()
 
 const g = ref(null)
 const loading = ref(true)
 const offSale = ref(false)
 const adding = ref(false)
+const collected = ref(false)
+const collectBusy = ref(false)
 const detailTab = ref('detail')
 const qty = ref(1)
 const sel = reactive({})
@@ -373,6 +382,30 @@ function buyNow() {
   router.push({ path: '/checkout', query: { mode: 'buynow' } })
 }
 
+/** BR-FAV-01/02：未登录跳登录并回跳当前商品；已登录调 collectAdd。
+ *  §6.7 决定进入页面不预查收藏态（后端无法按商品查），按钮初始「收藏」，点击后按返回的 collected 校正。 */
+async function toggleCollect() {
+  if (collectBusy.value || !g.value) return
+  if (!userStore.isLogin) {
+    router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return
+  }
+  collectBusy.value = true
+  try {
+    const data = await collectAdd({ goodsId: Number(g.value.id), type: collected.value ? 1 : 0 })
+    collected.value = data?.collected ?? !collected.value
+    toast(collected.value ? '已收藏' : '已取消收藏', 'ok')
+  } catch {
+    /* request 层已提示 */
+  } finally {
+    collectBusy.value = false
+  }
+}
+
+function askAi() {
+  router.push({ path: '/assistant', query: { ask: '这件商品' } })
+}
+
 function goBack() {
   if (window.history.length > 1) router.back()
   else router.push('/home')
@@ -422,3 +455,10 @@ onMounted(async () => {
   }
 })
 </script>
+
+<style scoped>
+/* 收藏态：AppIcon 的 svg 默认 fill="none"，CSS 可覆盖该 presentation attribute 变实心星 */
+:deep(.fav-on) {
+  fill: currentColor;
+}
+</style>

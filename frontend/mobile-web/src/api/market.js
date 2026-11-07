@@ -22,5 +22,10 @@ export const grouponList = (params) => request({ url: '/app/market/groupon/list'
 // 专题列表 GET /app/market/topic/list
 export const topicList = (params) => request({ url: '/app/market/topic/list', method: 'get', params })
 
+// 专题详情 GET /app/market/topic/detail?topicId=（R3，免登录；不存在时后端返回 404）
+// config 透传是为了让专题页用 silent 抑制 404 的全局错误 toast，改由页面友好空态承接
+export const topicDetail = (params, config = {}) =>
+  request({ url: '/app/market/topic/detail', method: 'get', params, ...config })
+
 // 公告列表 GET /app/market/notice/list
 export const noticeList = (params) => request({ url: '/app/market/notice/list', method: 'get', params })

@@ -56,6 +56,9 @@ public class Ad implements Serializable {
     @Schema(description = "是否启动")
     private Boolean enabled;
 
+    @Schema(description = "排序值，越小越前（R3-02；列由迁移 SQL 人工执行后才有）")
+    private Integer sortOrder;
+
     @Schema(description = "跳转类型：0 无跳转 / 1 商品 / 2 专题（BR-CMS-02）")
     private Integer linkType;
 

@@ -8,6 +8,7 @@ import com.litemall.domain.VO.CouponReceiveResultVO;
 import com.litemall.domain.VO.CouponUserVO;
 import com.litemall.domain.VO.CouponVO;
 import com.litemall.domain.VO.NoticeVO;
+import com.litemall.domain.VO.TopicDetailVO;
 import com.litemall.domain.VO.TopicVO;
 import com.litemall.domain.VO.UsableCouponsVO;
 import com.litemall.service.IAdService;
@@ -24,8 +25,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-
 @RestController
 @RequestMapping("/app/market")
 @Tag(name = "market", description = "市场活动相关接口")
@@ -37,10 +36,15 @@ public class MarketingController {
     private final ITopicService topicService;
     private final INoticeService noticeService;
 
-
+    /**
+     * 首页轮播（免登录）。返回 PageVO 而非数组：前端 Home.vue 按 page.list 消费（D2b）。
+     * 只认 position=home_banner，其余（含漏传）由服务层返回空分页（D1/D2）。
+     */
     @GetMapping("/ad/list")
-    public Result<List<AdVO>> getAdList(String position) {
-        return Result.ok(adService.getAdList(position));
+    public Result<PageVO<AdVO>> getAdList(
+            @RequestParam(value = "position", required = false) String position,
+            @RequestParam(value = "limit", required = false) Integer limit) {
+        return Result.ok(adService.getAdList(position, limit));
     }
 
     @GetMapping("/coupon/list")
@@ -92,6 +96,13 @@ public class MarketingController {
     @GetMapping("/topic/list")
     public Result<PageVO<TopicVO>> getTopicList(Integer pageNum, Integer pageSize) {
         return Result.ok(topicService.getTopicList(pageNum, pageSize));
+    }
+
+    /** R3-02 D7：跳专题的落地页数据，失效商品 id 由服务层跳过，不 500。 */
+    @GetMapping("/topic/detail")
+    public Result<TopicDetailVO> getTopicDetail(
+            @RequestParam(value = "topicId", required = false) Long topicId) {
+        return Result.ok(topicService.getTopicDetail(topicId));
     }
 
     @GetMapping("/notice/list")

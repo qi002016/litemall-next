@@ -1,7 +1,6 @@
 package com.litemall.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.litemall.domain.PO.Ad;
 import com.litemall.domain.PO.Coupon;
 import com.litemall.domain.PO.Topic;
 import com.litemall.domain.PageVO;
@@ -169,67 +168,27 @@ public class MarketingInnerController {
     public PageVO<AdDTO> adminListAds(@RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
                                       @RequestParam(value = "pageSize", defaultValue = "10") Integer pageSize,
                                       @RequestParam(value = "name", required = false) String name) {
-        Page<Ad> p = adService.lambdaQuery()
-                .eq(Ad::getDeleted, false)
-                .like(StringUtils.hasText(name), Ad::getName, name)
-                .orderByDesc(Ad::getId)
-                .page(new Page<>(normalizePage(pageNum), normalizeSize(pageSize)));
-        return PageVO.of(p, this::toAdDTO);
+        // 列表排序与写入口都收敛到服务层：后台列表按 sortOrder ASC, id DESC（D5）
+        return adService.adminListAds(pageNum, pageSize, name);
     }
 
     @Operation(summary = "管理端新建广告")
     @PostMapping("/admin/ad/create")
     public Long adminCreateAd(@RequestBody AdDTO dto) {
-        if (dto == null || !StringUtils.hasText(dto.getName())) {
-            throw new BadRequestException("广告名称不能为空");
-        }
-        LocalDateTime now = LocalDateTime.now();
-        Ad ad = new Ad();
-        ad.setName(dto.getName());
-        ad.setLink(dto.getLink());
-        ad.setUrl(dto.getUrl());
-        ad.setPosition(dto.getPosition());
-        ad.setContent(dto.getContent());
-        ad.setStartTime(dto.getStartTime());
-        ad.setEndTime(dto.getEndTime());
-        ad.setEnabled(dto.getEnabled());
-        ad.setDeleted(Boolean.FALSE);
-        ad.setAddTime(now);
-        ad.setUpdateTime(now);
-        adService.save(ad);
-        return ad.getId();
+        // 参数校验、linkType/sortOrder 落库、缓存 afterCommit 失效均在服务层（§3.3 分层、D4/D6）
+        return adService.createAd(dto);
     }
 
     @Operation(summary = "管理端更新广告")
     @PutMapping("/admin/ad/update")
     public void adminUpdateAd(@RequestBody AdDTO dto) {
-        Ad exists = requireAd(dto);
-        Ad ad = new Ad();
-        ad.setId(exists.getId());
-        ad.setName(dto.getName());
-        ad.setLink(dto.getLink());
-        ad.setUrl(dto.getUrl());
-        ad.setPosition(dto.getPosition());
-        ad.setContent(dto.getContent());
-        ad.setStartTime(dto.getStartTime());
-        ad.setEndTime(dto.getEndTime());
-        ad.setEnabled(dto.getEnabled());
-        ad.setUpdateTime(LocalDateTime.now());
-        adService.updateById(ad);
+        adService.updateAd(dto);
     }
 
     @Operation(summary = "管理端删除广告（逻辑删除）")
     @DeleteMapping("/admin/ad/delete")
     public void adminDeleteAd(@RequestParam("id") Long id) {
-        Ad ad = adService.getById(requireId(id, "广告"));
-        if (ad == null || Boolean.TRUE.equals(ad.getDeleted())) {
-            throw new BadRequestException("广告不存在");
-        }
-        Ad update = new Ad();
-        update.setId(id);
-        update.setDeleted(Boolean.TRUE);
-        update.setUpdateTime(LocalDateTime.now());
-        adService.updateById(update);
+        adService.deleteAd(id);
     }
 
     /* ==================== H5：管理端专题（admin 服务 Feign 调用） ==================== */
@@ -355,17 +314,6 @@ public class MarketingInnerController {
         return coupon;
     }
 
-    private Ad requireAd(AdDTO dto) {
-        if (dto == null || dto.getId() == null) {
-            throw new BadRequestException("广告ID不能为空");
-        }
-        Ad ad = adService.getById(dto.getId());
-        if (ad == null || Boolean.TRUE.equals(ad.getDeleted())) {
-            throw new BadRequestException("广告不存在");
-        }
-        return ad;
-    }
-
     private Topic requireTopic(TopicDTO dto) {
         if (dto == null || dto.getId() == null) {
             throw new BadRequestException("专题ID不能为空");
@@ -399,23 +347,6 @@ public class MarketingInnerController {
         dto.setAddTime(coupon.getAddTime());
         dto.setUpdateTime(coupon.getUpdateTime());
         dto.setDeleted(coupon.getDeleted());
-        return dto;
-    }
-
-    private AdDTO toAdDTO(Ad ad) {
-        AdDTO dto = new AdDTO();
-        dto.setId(ad.getId());
-        dto.setName(ad.getName());
-        dto.setLink(ad.getLink());
-        dto.setUrl(ad.getUrl());
-        dto.setPosition(ad.getPosition());
-        dto.setContent(ad.getContent());
-        dto.setStartTime(ad.getStartTime());
-        dto.setEndTime(ad.getEndTime());
-        dto.setEnabled(ad.getEnabled());
-        dto.setAddTime(ad.getAddTime());
-        dto.setUpdateTime(ad.getUpdateTime());
-        dto.setDeleted(ad.getDeleted());
         return dto;
     }
 

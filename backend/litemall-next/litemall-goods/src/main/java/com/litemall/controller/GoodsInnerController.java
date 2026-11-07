@@ -183,14 +183,45 @@ public class GoodsInnerController {
         if (ids == null || ids.isEmpty()) {
             return new ArrayList<>();
         }
+        // 延续原有 deleted 过滤：被逻辑删除的商品不该出现在收藏/足迹列表里
         List<Goods> goodsList = goodsService.listByIds(ids).stream()
                 .filter(g -> !Boolean.TRUE.equals(g.getDeleted()))
                 .toList();
+        if (goodsList.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 一次 in 批量取 SKU 再按 goodsId 分组，避免每个商品各查一次形成 N+1
+        List<Long> validIds = goodsList.stream().map(Goods::getId).toList();
+        Map<Long, List<GoodsProduct>> skuMap = goodsProductService.lambdaQuery()
+                .in(GoodsProduct::getGoodsId, validIds)
+                .eq(GoodsProduct::getDeleted, false)
+                .list()
+                .stream()
+                .collect(Collectors.groupingBy(GoodsProduct::getGoodsId));
+
         return goodsList.stream().map(g -> {
             GoodsBriefDTO dto = new GoodsBriefDTO();
             dto.setId(g.getId());
             dto.setName(g.getName());
             dto.setPicUrl(g.getPicUrl());
+            // 有未删除 SKU 取最低价；无 SKU（或价格全缺）回落零售价，统一按元→分转换；都没有则留 null，不造 0
+            Integer minFen = null;
+            List<GoodsProduct> skus = skuMap.get(g.getId());
+            if (skus != null) {
+                for (GoodsProduct sku : skus) {
+                    Integer fen = GoodsSupport.yuanToFen(sku.getPrice());
+                    if (fen != null && (minFen == null || fen < minFen)) {
+                        minFen = fen;
+                    }
+                }
+            }
+            if (minFen == null) {
+                minFen = GoodsSupport.yuanToFen(g.getRetailPrice());
+            }
+            dto.setPrice(minFen);
+            // 上面已过滤 deleted，这里仍显式带上 deleted 条件，防止过滤口径日后被改时 onSale 误判
+            dto.setOnSale(Boolean.TRUE.equals(g.getIsOnSale()) && !Boolean.TRUE.equals(g.getDeleted()));
             return dto;
         }).collect(Collectors.toList());
     }

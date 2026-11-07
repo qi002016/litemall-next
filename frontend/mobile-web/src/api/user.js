@@ -27,8 +27,8 @@ export const addressDelete = (addressId, data) =>
 export const addressSetDefault = (addressId) =>
   request({ url: '/app/address/default', method: 'get', params: { addressId } })
 
-// 我的收藏 GET /app/collect/list
-export const collectList = () => request({ url: '/app/collect/list', method: 'get' })
+// 我的收藏 GET /app/collect/list（列表页传 pageNum/pageSize；不传时沿用后端默认值）
+export const collectList = (params) => request({ url: '/app/collect/list', method: 'get', params })
 
 // 收藏/取消 POST /app/collect/add
 export const collectAdd = (data) => request({ url: '/app/collect/add', method: 'post', data })

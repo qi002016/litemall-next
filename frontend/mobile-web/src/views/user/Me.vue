@@ -1,4 +1,4 @@
-<!-- 我的：对齐 prototype/assets/app.js me（2682-2785）；收藏/关注/足迹属 R3，R1 只保留入口占位 -->
+<!-- 我的：对齐 prototype/assets/app.js me（2682-2785）；收藏与 AI 助手已开放（R3），关注店铺/足迹仍为占位 -->
 <template>
   <div class="c-page">
     <div class="c-head" style="background: linear-gradient(135deg, #ff5a1f, #ff2e4d); color: #fff; border: 0">
@@ -124,8 +124,17 @@ const isLogin = computed(() => userStore.isLogin)
 const nickname = computed(() => userStore.userInfo?.nickname || userStore.userInfo?.username || (isLogin.value ? '小满用户' : '未登录'))
 const phone = computed(() => userStore.userInfo?.phone || userStore.userInfo?.mobile || '')
 
+function goCollect() {
+  if (!userStore.isLogin) {
+    router.push({ path: '/login', query: { redirect: '/collect' } })
+    return
+  }
+  router.push('/collect')
+}
+
 const tools = computed(() => [
-  { label: '收藏', icon: 'star', n: 0, run: () => toast('收藏功能不在 R1 范围（R3 开放）') },
+  { label: 'AI 购物助手', icon: 'comment', n: 0, run: () => router.push('/assistant') },
+  { label: '收藏', icon: 'star', n: 0, run: goCollect },
   { label: '关注店铺', icon: 'shop', n: 0, run: () => toast('关注店铺不在 R1 范围（R3 开放）') },
   { label: '足迹', icon: 'clock', n: 0, run: () => toast('浏览足迹不在 R1 范围（R3 开放）') },
   { label: '我的优惠券', icon: 'tag', n: couponCount.value, run: () => router.push('/coupons') },

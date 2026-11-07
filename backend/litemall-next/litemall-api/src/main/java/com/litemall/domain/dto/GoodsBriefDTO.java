@@ -21,4 +21,13 @@ public class GoodsBriefDTO {
 
     /** 商品主图 */
     private String picUrl;
+
+    /**
+     * 售价（整数分）。收藏列表要展示价格，故只增此字段、不动既有字段，
+     * 避免足迹等其它调用方被迫同批发布；取可售 SKU 最低价，无 SKU 回落 retail_price×100，查不到留 null。
+     */
+    private Integer price;
+
+    /** 是否上架（is_on_sale=1 且未删除）。收藏列表要标「已下架」；商品不存在时由调用方给 false。 */
+    private Boolean onSale;
 }

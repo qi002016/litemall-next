@@ -51,6 +51,9 @@ public class Topic implements Serializable {
     @Schema(description = "专题封面图")
     private String picUrl;
 
+    @Schema(description = "关联商品ID串（实测为 JSON 数组串，兼容逗号串）")
+    private String goods;
+
     @Schema(description = "排序")
     private Integer sortOrder;
 

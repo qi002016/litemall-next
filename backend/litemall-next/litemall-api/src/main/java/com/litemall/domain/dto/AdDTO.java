@@ -26,6 +26,12 @@ public class AdDTO {
     @Schema(description = "跳转链接")
     private String link;
 
+    @Schema(description = "跳转类型：0 无跳转 / 1 商品 / 2 专题（BR-CMS-02）")
+    private Integer linkType;
+
+    @Schema(description = "排序值，越小越前（R3-02）")
+    private Integer sortOrder;
+
     @Schema(description = "广告图片")
     private String url;
 

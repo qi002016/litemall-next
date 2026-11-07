@@ -27,6 +27,12 @@ public class CollectVO {
     @Schema(description = "商品主图")
     private String picUrl;
 
+    @Schema(description = "售价（整数分）；商品不存在时为 null")
+    private Integer price;
+
+    @Schema(description = "是否上架；商品不存在/已下架为 false")
+    private Boolean onSale;
+
     @Schema(description = "收藏时间（yyyy-MM-dd HH:mm:ss）")
     private String addTime;
 }
