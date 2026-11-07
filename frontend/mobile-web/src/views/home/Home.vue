@@ -21,6 +21,10 @@
           <span class="x-sph">搜商品 / 标签，如「卫衣」</span>
           <span class="x-ico" v-html="SVG_CAM" />
         </div>
+        <!-- AI 助手入口：与列表页同款胶囊，保证首页也能一眼看到进得去（原 CR-01「首页不放」已按业主 2026-11-07 要求调整） -->
+        <button type="button" class="x-aibtn" @click="go('/assistant')">
+          <AppIcon name="comment" :size="13" /><span>AI</span>
+        </button>
         <div class="x-cartbtn" @click="go('/cart')">
           <AppIcon name="cart" :size="22" />
           <span v-if="app.cartCount" class="badge-dot">{{ app.cartCount > 99 ? '99+' : app.cartCount }}</span>
@@ -29,19 +33,28 @@
     </div>
 
     <div class="c-body" style="padding-top: 10px">
-      <div class="x-bwrap">
-        <div class="x-banner" :style="{ background: banner.bg }" @click="go(banner.href)">
+    <div class="x-bwrap">
+      <div class="x-banner" :style="{ background: banner.bg }" @click="goBanner(banner)">
+        <img
+          v-if="banner.url && !banner.imgBroken"
+          class="x-bcover"
+          :src="mediaUrl(banner.url)"
+          :alt="banner.name"
+          @error="banner.imgBroken = true"
+        />
+        <template v-else>
           <span class="x-btag">{{ banner.tag }}</span>
           <div class="x-btxt">
             <div class="x-bt">{{ banner.title }}</div>
             <div class="x-bs">{{ banner.sub }}</div>
           </div>
           <div class="x-bimg" v-html="BANNER_ART" />
-        </div>
-        <div v-if="banners.length > 1" class="x-bdots">
-          <i v-for="(b, i) in banners" :key="i" :class="{ on: i === bannerIdx }" @click="bannerIdx = i" />
-        </div>
+        </template>
       </div>
+      <div v-if="banners.length > 1" class="x-bdots">
+        <i v-for="(b, i) in banners" :key="i" :class="{ on: i === bannerIdx }" @click="bannerIdx = i" />
+      </div>
+    </div>
 
       <div class="x-notice">
         <span class="x-ico" v-html="SVG_BULB" />
@@ -77,6 +90,7 @@ import { goodsList, categoryTree } from '@/api/goods'
 import { adList, noticeList } from '@/api/market'
 import { useAppStore } from '@/store/app'
 import { fromNow } from '@/utils/format'
+import { mediaUrl } from '@/utils/media'
 import { SVG_SCAN, SVG_CAM, SVG_BULB, BANNER_ART } from '@/utils/svg'
 
 const router = useRouter()
@@ -108,12 +122,28 @@ const banner = computed(
       title: '小满商城 · 春夏上新',
       sub: '精选好物 一站购齐',
       bg: 'linear-gradient(120deg,#FF7A18,#FF4D4D)',
-      href: '/list',
+      name: '小满商城 · 春夏上新',
+      url: '',
+      linkType: 0,
+      link: '',
+      imgBroken: false,
+      fallback: true,
     }
 )
 
 function go(path) {
   router.push(path)
+}
+
+/** 轮播跳转：link 只是商品/专题 ID，绝不当 URL 用；linkType=0 不跳。静态兜底保留 R1 的 /list 行为。 */
+function goBanner(b) {
+  if (b.fallback) {
+    router.push('/list')
+    return
+  }
+  const t = Number(b.linkType)
+  if (t === 1 && b.link) router.push('/goods/' + b.link)
+  else if (t === 2 && b.link) router.push('/topic/' + b.link)
 }
 
 async function loadGoods(reset = false) {
@@ -165,16 +195,21 @@ async function loadCategories() {
 
 async function loadBanners() {
   try {
-    const page = await adList({ pageNum: 1, pageSize: 3 })
-    const rows = (page?.list || []).filter((a) => a && (a.name || a.url))
+    const page = await adList({ position: 'home_banner', limit: 5 })
+    const rows = (page?.list || []).filter((a) => a && (a.name || a.url)).slice(0, 5)
     if (rows.length) {
       const grads = ['#FF7A18,#FF4D4D', '#FF8A3D,#FF2741', '#FF6A00,#FF9A3D']
       banners.value = rows.map((a, i) => ({
         tag: '推荐',
+        name: a.name || '小满商城',
         title: a.name || '小满商城',
         sub: '限时活动 · 精选好物',
         bg: `linear-gradient(120deg, ${grads[i % 3]})`,
-        href: a.link && String(a.link).startsWith('/') ? a.link : '/list',
+        url: a.url || '',
+        linkType: Number(a.linkType ?? 0),
+        link: a.link == null ? '' : String(a.link),
+        sortOrder: a.sortOrder,
+        imgBroken: false,
       }))
       timer = setInterval(() => {
         bannerIdx.value = (bannerIdx.value + 1) % banners.value.length
@@ -212,3 +247,14 @@ onBeforeUnmount(() => {
   timer = null
 })
 </script>
+
+<style scoped>
+/* 广告图铺满 banner；加载失败时回退到模板里的本地渐变 + BANNER_ART 内联 SVG 兜底图 */
+.x-bcover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+</style>

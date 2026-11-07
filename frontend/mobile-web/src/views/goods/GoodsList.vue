@@ -1,4 +1,4 @@
-<!-- 商品列表 / 搜索 / 分类下钻：对齐 prototype/assets/app.js list（1036-1234），AI 入口按 R1 口径不出现 -->
+<!-- 商品列表 / 搜索 / 分类下钻：对齐 prototype/assets/app.js list（1036-1234）；R3 起按原型 t14 恢复顶部「AI」入口 -->
 <template>
   <div class="c-page">
     <div class="c-head x-lhead">
@@ -7,6 +7,10 @@
         <AppIcon name="search" :size="15" />
         <span :class="kw ? 'x-lkw' : 'x-sph'">{{ kw || '搜商品 / 标签' }}</span>
       </div>
+      <!-- 原型 t14 的「返回 + 搜索框 + AI 助手」；带上当前关键词，会话页会预填输入框（不自动发送） -->
+      <button type="button" class="x-aibtn" @click="goAi">
+        <AppIcon name="comment" :size="13" /><span>AI</span>
+      </button>
     </div>
 
     <div class="pad" style="padding-bottom: 2px">
@@ -272,6 +276,12 @@ function openGoods(id) {
 function goBack() {
   if (window.history.length > 1) router.back()
   else router.push('/home')
+}
+
+/** AI 入口：带当前关键词进会话页（未登录由路由守卫接管，登录后回跳仍回到列表页） */
+function goAi() {
+  const ask = kw.value || ''
+  router.push({ path: '/assistant', query: ask ? { ask } : {} })
 }
 
 function pushQuery(patch) {

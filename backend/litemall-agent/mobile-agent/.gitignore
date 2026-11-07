@@ -1,0 +1,31 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 环境变量（含密钥，不入库）
+.env
+
+# 构建产物
+dist/
+build/
+*.spec
+
+# IDE
+.idea/
+.vscode/
+
+# 日志
+logs/
+*.log
+
+# P1：隔离安装的依赖目录与本地 checkpoint 文件（不入库、不污染全局环境）
+.p1deps/
+.p1checkpoints.json
+.p1checkpoints.json.*.tmp
+.p1checkpoints.sqlite
+
+# pytest 临时目录与 checkpoint 写入残留（本地跑测产生）
+pytest-of-*/
+.p1checkpoints.json.*

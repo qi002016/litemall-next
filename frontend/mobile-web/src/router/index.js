@@ -4,7 +4,7 @@ import { useUserStore } from '@/store/user'
 /**
  * 路由与 prototype/ 的 C 端 21 屏一一对应（R1 只实现 R1 范围内的屏）。
  * 底部四 Tab：首页 / 消息 / 购物车 / 我的（对齐 prototype 的 .c-tab）。
- * R1 明确不提供 AI 助手入口：/assistant 仅保留「未启用」落地页。
+ * R3 已交付 AI 助手：/assistant 指向真实会话页，入口只放「我的」与商品详情页，首页不放。
  */
 const routes = [
   { path: '/', redirect: '/home' },
@@ -34,8 +34,10 @@ const routes = [
   { path: '/review', name: 'Review', component: () => import('@/views/review/Review.vue'), meta: { title: '待评价', requiresLogin: true } },
   { path: '/address', name: 'Address', component: () => import('@/views/user/Address.vue'), meta: { title: '收货地址', requiresLogin: true } },
   { path: '/coupons', name: 'Coupons', component: () => import('@/views/user/Coupons.vue'), meta: { title: '我的优惠券', requiresLogin: true } },
-  // R1：AI 助手未启用，仅保留落地页（不得渲染任何假回答）
-  { path: '/assistant', name: 'Assistant', component: () => import('@/views/assistant/AssistantDisabled.vue'), meta: { title: '智能助手' } },
+  { path: '/collect', name: 'Collect', component: () => import('@/views/user/Collect.vue'), meta: { title: '我的收藏', requiresLogin: true } },
+  { path: '/topic/:id', name: 'TopicDetail', component: () => import('@/views/topic/TopicDetail.vue'), meta: { title: '专题详情' } },
+  // R3：真实 AI 会话页（需登录）。旧占位页 AssistantDisabled.vue 已删除（2026-11-07）
+  { path: '/assistant', name: 'Assistant', component: () => import('@/views/assistant/Assistant.vue'), meta: { title: '智能助手', requiresLogin: true } },
   { path: '/:pathMatch(.*)*', redirect: '/home' },
 ]
 
