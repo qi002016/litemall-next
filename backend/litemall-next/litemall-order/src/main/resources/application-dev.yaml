@@ -1,10 +1,8 @@
-hm:
-  db:
-    host: localhost
-    pw: 123456
-  redis:
-    host: localhost
-    port: 6379
+# 命名约定：dev 键与占位符/环境变量统一为 HM_* 大写（HM_DB_* / HM_REDIS_*）。
+HM_DB_HOST: localhost
+HM_DB_PW: 123456
+HM_REDIS_HOST: localhost
+HM_REDIS_PORT: 6379
 
 # 注册 IP 必须与 server.address 保持一致（H3 配套）：
 # dev 默认只绑回环（HM_SERVER_BIND=127.0.0.1），若让 Spring 自动探测注册 IP，会取主机第一块

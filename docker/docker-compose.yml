@@ -34,7 +34,7 @@ x-app-env: &app-env
   HM_NACOS_ADDR: nacos:8848
   HM_SEATA_ADDR: nacos:8848
   HM_ROCKETMQ_ADDR: rocketmq-namesrv:9876
-  # HM_DB_HOST/HM_DB_USER/HM_DB_PW 经 Spring 宽松绑定映射到 hm.db.host/user/pw
+  # HM_* 环境变量与 common.yaml 占位符同名直接命中（统一 HM_* 大写命名，不再经宽松绑定映射小写键）
   HM_DB_HOST: mysql
   HM_DB_PORT: "3306"
   HM_DB_NAME: ${HM_DB_NAME:-litemall}

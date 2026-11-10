@@ -31,3 +31,16 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### 本地机密与密钥（绝不提交）###
+application-local.yaml
+*.jks
+*.p12
+
+### 运行日志与崩溃日志 ###
+logs/
+hs_err_pid*.log
+replay_pid*.log
+
+### Docker ###
+.dockerignore

@@ -116,6 +116,15 @@ Feign 出站由 `litemall-api` 的 `FeignInnerConfig` 自动附加。
 | `HM_WX_PAY_ENABLED` / `HM_WX_PAY_CERT` / `HM_WX_PAY_APIV3_KEY` | 生产支付**必需** | `false` / 空 / 空 | 微信 v3 回调验签（H2）；enabled=true 而缺证书/密钥则启动失败 |
 | `HM_WX_MOCK_ENABLED` | 仅 dev | dev `true` | 打开 `MockWechatMiniService`（H8） |
 
+### 4.5 配置体系（共享配置）
+
+9 个服务的 `application.yaml` 只保留**特有段**（端口、服务名、网关路由/鉴权、各服务的业务键）；数据源、Redis、Nacos、Seata、MyBatis-Plus、日志等公共样板统一收敛到：
+
+- **本地/dev**：`litemall-common-core/src/main/resources/common.yaml`，随 jar 进 classpath，各服务通过 `spring.config.import` 里的 `- optional:classpath:common.yaml` 引入（文件缺失静默跳过，本地不依赖 Nacos 也能起）。
+- **prod**：`spring.config.import` 去掉 `optional:`，强制连 Nacos（dataId=`${spring.application.name}.yaml`），Nacos 不可达即启动失败，避免静默降级。
+
+覆盖规则：被 import 的配置优先级低于声明它的主文档，因此服务自身 yaml 可覆盖共享默认值（如 `gateway` 把 `seata.enabled` 覆盖为 `false`）。改公共项只需动 `common.yaml` 一份；改服务特有项仍动各自的 `application.yaml`。
+
 ## 5. 启动顺序
 
 前置：JDK 25、Maven 3.9+、MySQL（`litemall` 库，36 张业务表 + `undo_log`）、Redis、Nacos。

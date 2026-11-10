@@ -1,96 +1,21 @@
 server:
   port: 8007
-  # P0/H3 遗漏补齐：本模块原先没有 address，是 9 个可运行模块里唯一监听全网卡的
-  # （netstat 实测为 `::`），与其它服务的"默认只绑回环"策略不一致。
-  # 容器/对外部署同样用 HM_SERVER_BIND=0.0.0.0 覆盖，compose 行为不变。
-  address: ${HM_SERVER_BIND:127.0.0.1}
 spring:
   application:
     name: litemall-storage
-  profiles:
-    active: ${HM_ACTIVE_PROFILE:dev}
   config:
     import:
       - optional:nacos:${spring.application.name}.yaml
-      # 本地开发机密：不进 git 的本地文件（换机器只需复制一份，免配环境变量）
-      # 推荐放在仓库后端根 backend/litemall-next/application-local.yaml（由 ../ 命中），
-      # 也可放各服务自己的目录（./）或 ./config/ 下；文件不存在时静默跳过。
-      - optional:file:./application-local.yaml
-      - optional:file:./config/application-local.yaml
-      - optional:file:../application-local.yaml
-  datasource:
-    url: jdbc:mysql://${hm.db.host:127.0.0.1}:${hm.db.port:3306}/${hm.db.name:litemall}?useUnicode=true&characterEncoding=UTF-8&autoReconnect=true&serverTimezone=Asia/Shanghai
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    # M12/H5：账号不再写死 root，由 HM_DB_USER 注入（默认值仍为 root 以保持现有 dev 可跑）
-    username: ${HM_DB_USER:root}
-    # M12：去掉明文默认口令 123456；dev 由 application-dev.yaml 提供，prod 必须由环境变量注入
-    password: ${hm.db.pw}
-  data:
-    redis:
-      host: ${hm.redis.host:127.0.0.1}
-      port: ${hm.redis.port:6379}
-      password: ${hm.redis.pw:}
-      lettuce:
-        pool:
-          max-active: 8
-          max-idle: 8
-          min-idle: 0
-  cloud:
-    nacos:
-      # M12：中间件地址由环境变量注入；默认值为本环境的 dev 中间件（实测可达），可整体替换以切换环境
-      server-addr: ${HM_NACOS_ADDR:192.168.96.129:8848}
-    sentinel:
-      enabled: false
-      transport:
-        dashboard: localhost:8090
+      # 共享配置：随 litemall-common-core 打包进 classpath（本地机密加载亦由 common.yaml 统一声明）
+      - optional:classpath:common.yaml
 
-mybatis-plus:
-  configuration:
-    default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.MybatisEnumTypeHandler
-  global-config:
-    db-config:
-      update-strategy: not_null
-      id-type: auto
-seata:
-  enabled: true
-  application-id: ${spring.application.name}
-  tx-service-group: default_tx_group
-  registry:
-    type: nacos
-    nacos:
-      application: seata-server
-      server-addr: ${HM_SEATA_ADDR:192.168.96.129:8848}
-      group: SEATA_GROUP
-      namespace: ""
-      cluster: default
-      username: ""
-      password: ""
-  service:
-    vgroup-mapping:
-      default_tx_group: default
-sentinel:
-  enabled: false
-
-# 上传文件保存目录（相对服务启动目录）
 hm:
-  # H3：/inner/** 内部调用共享密钥，由环境变量 HM_INTERNAL_TOKEN 注入
-  internal:
-    token: ${HM_INTERNAL_TOKEN:}
   storage:
     # L7：上传目录、单文件大小上限、扩展名白名单全部可配置
     dir: ${HM_STORAGE_DIR:./storage}
     # 默认 10MB；实现内另以 Integer.MAX_VALUE 兜底（DB 列为 int），超限直接拒绝
     max-size: ${HM_STORAGE_MAX_SIZE:10485760}
     allowed-extensions: ${HM_STORAGE_ALLOWED_EXT:jpg,jpeg,png,gif,webp,bmp,pdf}
-
-logging:
-  level:
-    # M12：清掉历史遗留的错误命名空间（原 logger 名不属于本项目）
-    com.litemall: ${HM_LOG_LEVEL_APP:DEBUG}
-  pattern:
-    dateformat: HH:mm:ss:SSS
-  file:
-    path: "logs/${spring.application.name}"
 
 ---
 # M12：prod profile 强制连接配置中心（去掉 optional 语义）——Nacos 不可达即启动失败，

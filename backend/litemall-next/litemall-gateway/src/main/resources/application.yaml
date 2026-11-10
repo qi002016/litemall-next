@@ -1,26 +1,15 @@
 server:
   port: 8000
-  # H3：默认只绑回环；容器/对外部署用 HM_SERVER_BIND 覆盖为 0.0.0.0
-  address: ${HM_SERVER_BIND:127.0.0.1}
 spring:
   application:
     name: gateway
-  # M12 铺垫：默认 dev（本地/联调），生产必须用 HM_ACTIVE_PROFILE=prod 覆盖
-  profiles:
-    active: ${HM_ACTIVE_PROFILE:dev}
   config:
     import:
       - optional:nacos:${spring.application.name}.yaml
-      # 本地开发机密：不进 git 的本地文件（换机器只需复制一份，免配环境变量）
-      # 推荐放在仓库后端根 backend/litemall-next/application-local.yaml（由 ../ 命中），
-      # 也可放各服务自己的目录（./）或 ./config/ 下；文件不存在时静默跳过。
-      - optional:file:./application-local.yaml
-      - optional:file:./config/application-local.yaml
-      - optional:file:../application-local.yaml
+      # 共享配置：随 litemall-common-core 打包进 classpath（本地机密加载亦由 common.yaml 统一声明），服务内同名键可覆盖（见 seata.enabled）
+      - optional:classpath:common.yaml
   cloud:
     nacos:
-      # M12：中间件地址由环境变量注入；默认值为本环境的 dev 中间件（实测可达），可整体替换以切换环境
-      server-addr: ${HM_NACOS_ADDR:192.168.96.129:8848}
       discovery:
         namespace: public
     sentinel:
@@ -76,28 +65,13 @@ spring:
               uri: lb://litemall-admin
               predicates:
                 - Path=/admin/**
+            # 购物助手是独立 Python 进程：/agent 前缀原样转发，不剥前缀（agent 自身暴露 /agent/**）
+            - id: agent
+              uri: http://127.0.0.1:8100
+              predicates:
+                - Path=/agent/**
 seata:
-  # M16/NF-1：网关不参与分布式事务。M16 拆分后网关只依赖 litemall-common-core +
-  # litemall-common-jwt，Seata 位于 litemall-common 聚合层，网关根本拿不到该依赖
-  #（此前靠 gateway/pom.xml 的 exclusion 实现，现已无需 exclusion）；
-  # 此处再显式关闭，避免后续有人重新引入依赖时复活该问题。
-  enabled: false
-  application-id: ${spring.application.name}
-  tx-service-group: default_tx_group
-  registry:
-    type: nacos
-    nacos:
-      application: seata-server
-      server-addr: ${HM_SEATA_ADDR:192.168.96.129:8848}
-      group: SEATA_GROUP
-      namespace: ""
-      cluster: default
-      username: ""
-      password: ""
-  service:
-    vgroup-mapping:
-      default_tx_group: default
-sentinel:
+  # M16/NF-1：网关不参与分布式事务（公共配置默认 enabled: true，此处显式覆盖为 false）
   enabled: false
 hm:
   # H4：密钥库口令不再随源码提交，必须由环境变量注入；缺失时启动失败(fail-fast)
@@ -106,9 +80,6 @@ hm:
     alias: ${HM_JKS_ALIAS:hmall}
     password: ${HM_JKS_PASSWORD:}
     tokenTTL: 30m
-  # H3：/inner/** 内部调用共享密钥；dev 允许为空(不校验并告警)，非 dev 为空则启动失败
-  internal:
-    token: ${HM_INTERNAL_TOKEN:}
   auth:
     # H1：路径前缀 → 要求的令牌角色与受众
     roleRules:
@@ -116,6 +87,10 @@ hm:
         role: admin
         aud: litemall-admin
       - pattern: /app/**
+        role: user
+        aud: litemall-app
+      # 会话必须知道"你是谁"：/agent/** 与 /app/** 同角色同受众，且不放进 excludePaths
+      - pattern: /agent/**
         role: user
         aud: litemall-app
     excludePaths:
@@ -134,6 +109,8 @@ hm:
       - /app/market/coupon/list
       - /app/market/groupon/list
       - /app/market/topic/list
+      # 首页轮播"跳专题"从免登录态打开详情，不放行会 401
+      - /app/market/topic/detail
       - /app/market/notice/list
       # H2：微信支付回调免登录(微信服务器无令牌)，但必须在 pay 服务内通过验签；
       # 只登记精确路径，禁止通配，避免新增回调端点自动获得免登录语义

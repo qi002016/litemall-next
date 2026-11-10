@@ -1,10 +1,9 @@
+# 命名约定：dev 键与占位符/环境变量统一为 HM_* 大写（HM_DB_* / HM_REDIS_*）。
+HM_DB_HOST: localhost
+HM_DB_PW: 123456
+HM_REDIS_HOST: localhost
+HM_REDIS_PORT: 6379
 hm:
-  db:
-    host: localhost
-    pw: 123456
-  redis:
-    host: localhost
-    port: 6379
   wx:
     mock:
       # H8：仅 dev 显式开启 mock 微信登录；生产不开启则启动失败

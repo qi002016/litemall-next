@@ -1,77 +1,13 @@
 server:
   port: 8008
-  # H3：默认只绑回环；容器/对外部署用 HM_SERVER_BIND 覆盖为 0.0.0.0
-  address: ${HM_SERVER_BIND:127.0.0.1}
 spring:
   application:
     name: litemall-admin
-  # M12 铺垫：默认 dev（本地/联调），生产必须用 HM_ACTIVE_PROFILE=prod 覆盖，
-  # 届时缺 HM_JKS_PASSWORD / HM_INTERNAL_TOKEN 会直接启动失败
-  profiles:
-    active: ${HM_ACTIVE_PROFILE:dev}
   config:
     import:
       - optional:nacos:${spring.application.name}.yaml
-      # 本地开发机密：不进 git 的本地文件（换机器只需复制一份，免配环境变量）
-      # 推荐放在仓库后端根 backend/litemall-next/application-local.yaml（由 ../ 命中），
-      # 也可放各服务自己的目录（./）或 ./config/ 下；文件不存在时静默跳过。
-      - optional:file:./application-local.yaml
-      - optional:file:./config/application-local.yaml
-      - optional:file:../application-local.yaml
-  datasource:
-    url: jdbc:mysql://${hm.db.host:127.0.0.1}:${hm.db.port:3306}/${hm.db.name:litemall}?useUnicode=true&characterEncoding=UTF-8&autoReconnect=true&serverTimezone=Asia/Shanghai
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    # M12/H5：账号不再写死 root，由 HM_DB_USER 注入（默认值仍为 root 以保持现有 dev 可跑）
-    username: ${HM_DB_USER:root}
-    # M12：口令无默认值——dev 由新增的 application-dev.yaml 提供，prod 必须由环境变量 HM_DB_PW 注入
-    password: ${hm.db.pw}
-  data:
-    redis:
-      host: ${hm.redis.host:127.0.0.1}
-      port: ${hm.redis.port:6379}
-      password: ${hm.redis.pw:}
-      lettuce:
-        pool:
-          max-active: 8
-          max-idle: 8
-          min-idle: 0
-  cloud:
-    nacos:
-      # M12：中间件地址由环境变量注入；默认值为本环境的 dev 中间件（实测可达），可整体替换以切换环境
-      server-addr: ${HM_NACOS_ADDR:192.168.96.129:8848}
-    sentinel:
-      enabled: false
-
-mybatis-plus:
-  configuration:
-    default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.MybatisEnumTypeHandler
-  global-config:
-    db-config:
-      update-strategy: not_null
-      id-type: auto
-
-# 补齐与其余 8 个服务一致的 Seata 客户端配置（此前本模块缺失该项，导致启动即失败：
-# Seata 由 litemall-common 胖 starter 带入，缺配置时 registry 退回 file，
-# FileRegistryServiceImpl 找不到 service.vgroupMapping.default_tx_group 而抛 ConfigNotFoundException）。
-# 注：admin 自身没有 @GlobalTransactional（全仓仅 order 的 3 处）；
-#     启用后 admin 的启动会依赖 Seata/Nacos 可用性——若希望 admin 与 Seata 解耦，可将 enabled 置 false。
-seata:
-  enabled: true
-  application-id: ${spring.application.name}
-  tx-service-group: default_tx_group
-  registry:
-    type: nacos
-    nacos:
-      application: seata-server
-      server-addr: ${HM_SEATA_ADDR:192.168.96.129:8848}
-      group: SEATA_GROUP
-      namespace: ""
-      cluster: default
-      username: ""
-      password: ""
-  service:
-    vgroup-mapping:
-      default_tx_group: default
+      # 共享配置：随 litemall-common-core 打包进 classpath（本地机密加载亦由 common.yaml 统一声明）
+      - optional:classpath:common.yaml
 
 hm:
   # H4：密钥库口令不再随源码提交，必须由环境变量注入；缺失时启动失败(fail-fast)
@@ -80,18 +16,6 @@ hm:
     alias: ${HM_JKS_ALIAS:hmall}
     password: ${HM_JKS_PASSWORD:}
     tokenTTL: 30m
-  # H3：/inner/** 内部调用共享密钥，由环境变量 HM_INTERNAL_TOKEN 注入
-  internal:
-    token: ${HM_INTERNAL_TOKEN:}
-
-logging:
-  level:
-    # M12：级别可由 HM_LOG_LEVEL_APP 覆盖（原来固定 debug）
-    com.litemall: ${HM_LOG_LEVEL_APP:DEBUG}
-  pattern:
-    dateformat: HH:mm:ss:SSS
-  file:
-    path: "logs/${spring.application.name}"
 
 ---
 # M12：prod profile 强制连接配置中心（去掉 optional 语义）——Nacos 不可达即启动失败，

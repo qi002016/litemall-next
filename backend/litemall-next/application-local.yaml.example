@@ -6,13 +6,15 @@
 #      backend/litemall-next/application-local.yaml
 #   然后按下面注释填入本机口令。application-local.yaml 已被 .gitignore 忽略。
 #
-# 生效方式：9 个服务的 application.yaml 里已声明
+# 生效方式：由共享配置 litemall-common-core/src/main/resources/common.yaml 统一声明
 #   spring.config.import:
 #     - optional:file:./application-local.yaml
 #     - optional:file:./config/application-local.yaml
 #     - optional:file:../application-local.yaml
-#   把本文件放在 backend/litemall-next/ 根目录（服务运行目录为其子模块，由 ../ 命中）；
-#   也可放到某个服务自己的目录（./）或 ./config/ 下。文件不存在时静默跳过，不影响启动。
+#   9 个服务的 application.yaml 无需再各自声明（本地机密加载已收敛到 common.yaml）。
+#   file: 相对路径按运行目录解析：把本文件放在 backend/litemall-next/ 根目录
+#   （服务从模块目录启动，由 ../ 命中）；也可放到某个服务自己的目录（./）或 ./config/ 下。
+#   文件不存在时静默跳过，不影响启动。
 #
 # 为什么下面可以写成"大写环境变量名"：
 #   application.yaml 里的占位符形如 ${HM_JKS_PASSWORD:}，占位符解析是在整个 Environment
